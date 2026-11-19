@@ -15,7 +15,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from .foods import FOODS, db_slots, find_food
+from .foods import FOODS, db_slots
 
 log = logging.getLogger(__name__)
 
@@ -56,16 +56,6 @@ class PlanOut(BaseModel):
     summary: str
     days: list[DayOut]
     tips: list[str]
-
-
-class FoodGuess(BaseModel):
-    is_food: bool
-    name: str = Field(max_length=120)
-    portion: str = Field(max_length=120)
-    kcal: int = Field(ge=0, le=3000)
-    protein_g: int = Field(ge=0, le=300)
-    confidence: Literal["low", "medium", "high"]
-    note: str = Field(max_length=300)
 
 
 class MenuPick(BaseModel):
@@ -324,34 +314,8 @@ def _finalise_plan(plan: dict, metrics: dict, source: str) -> dict:
     return plan
 
 
-# ---------------------------------------------------------------------------
-# Feature 2: Food photo recognition (Gemini Vision)
-# ---------------------------------------------------------------------------
-def recognize_food(image: bytes, mime: str) -> dict:
-    if not is_enabled():
-        return {"ok": False, "source": "demo", "reason": "AI vision is offline. Pick your food from the list instead."}
-    from google.genai import types
-
-    prompt = (
-        "Identify the main dish in this photo. Malaysian dishes are likely. "
-        "Estimate the calories and protein for the portion shown. If it is not food, set is_food=false."
-    )
-    try:
-        guess: FoodGuess = _structured(
-            [types.Part.from_bytes(data=image, mime_type=mime), prompt],
-            FoodGuess, SAFETY_RULES, temperature=0.2,
-        )
-    except Exception as exc:  # noqa: BLE001
-        log.warning("Gemini vision failed: %s", exc)
-        return {"ok": False, "source": "gemini", "reason": "Couldn't analyse that photo. Try again or pick from the list."}
-    out = {"ok": guess.is_food, "source": "gemini", **guess.model_dump()}
-    match = find_food(guess.name)
-    if match:
-        out["db_match"] = match
-    if not guess.is_food:
-        out["reason"] = "That doesn't look like food. Try another photo."
-    return out
-
+# Food PHOTOS are recognised on the device by the Teachable Machine model (static/js/views/snap.js);
+# the server only handles nutrition labels and menu boards.
 
 # ---------------------------------------------------------------------------
 # Exclusive: Menu Scanner

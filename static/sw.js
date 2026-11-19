@@ -2,7 +2,7 @@
 // - App shell (HTML/CSS/JS/icons): stale-while-revalidate, so updates arrive on the next launch.
 // - /api/*: always network, never cached (health data and AI answers stay fresh and private).
 // - Cross-origin requests (CDN, Teachable Machine) are left to the browser.
-const VERSION = 'bodywise-v7';
+const VERSION = 'bodywise-v8';
 const SHELL = [
   '/', '/css/styles.css', '/css/v2.css', '/manifest.webmanifest',
   '/js/main.js', '/js/ui.js', '/js/store.js', '/js/api.js', '/js/theme.js', '/js/avatar.js', '/js/avatar3d.js',

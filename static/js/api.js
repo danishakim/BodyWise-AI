@@ -38,7 +38,6 @@ export const api = {
   assess: (profile) => post('/api/assess', profile),
   plan: (profile, prefs) => post('/api/plan', { profile, prefs }, { timeout: 180000 }),
   swap: (slot, kcal, vegetarian, name) => post('/api/swap', { slot, kcal, vegetarian, name }),
-  recognize: (blob) => request('/api/food/recognize', { method: 'POST', form: imageForm(blob) }),
   scanMenu: (blob, fields) => request('/api/menu/scan', { method: 'POST', form: imageForm(blob, fields) }),
   scanLabel: (blob) => request('/api/label/scan', { method: 'POST', form: imageForm(blob) }),
   predict: (weights, target_kg, goal) => post('/api/predict', { weights, target_kg, goal }),

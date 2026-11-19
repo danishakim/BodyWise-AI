@@ -46,7 +46,7 @@ def test_cheap_routes_have_no_quota(monkeypatch):
 def test_uploads_need_same_site_header(monkeypatch):
     c = make_client(monkeypatch)
     jpeg = b"\xff\xd8\xff\xe0" + b"0" * 100
-    r = c.post("/api/food/recognize", data={"image": (io.BytesIO(jpeg), "x.jpg")}, content_type="multipart/form-data")
+    r = c.post("/api/label/scan", data={"image": (io.BytesIO(jpeg), "x.jpg")}, content_type="multipart/form-data")
     assert r.status_code == 403
 
 
@@ -77,8 +77,6 @@ def test_image_sniffing_is_strict():
 
 
 def test_ai_output_is_bounded():
-    with pytest.raises(ValidationError):
-        ai.FoodGuess(is_food=True, name="x", portion="1", kcal=-50, protein_g=5, confidence="high", note="")
     with pytest.raises(ValidationError):
         ai.MenuPick(dish="x", est_kcal=99999, verdict="best", reason="", tweak="")
     with pytest.raises(ValidationError):

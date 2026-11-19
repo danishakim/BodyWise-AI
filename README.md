@@ -25,7 +25,7 @@ people give up within weeks.
 | Feature | AI / technique |
 |---|---|
 | 7-day meal plan for losing, maintaining or gaining weight, with a ringgit budget, halal and vegetarian options and **Puasa (Ramadan) mode** | **Google Gemini**, structured JSON output |
-| **Food photo**: identifies the dish and its calories | **Teachable Machine** model (runs on the device), with **Gemini Vision** as backup |
+| **Food photo**: identifies the dish, calories come from our Malaysian food list | **Teachable Machine** image model, runs entirely on the device (photos never leave the phone) |
 | **Nutrition label scanner** for packaged food | **Gemini Vision** reads the label into a fixed format, then an arithmetic check (kcal ≈ 4P + 4C + 9F, per-100 g vs per-serving, kJ/kcal mix-ups) |
 | **Menu scanner**: ranks dishes on a hawker menu board for the calories you have left | **Gemini Vision** |
 | **AI coach** chat that knows your targets and today's log | **Gemini** |
@@ -86,11 +86,11 @@ the coach gives rule-based replies, so a presentation never breaks.
 | `AI_DAILY_CAP` | Total AI requests per day; after that everything switches to demo mode | `500` |
 | `TRUST_PROXY` | Set to `1` only behind one reverse proxy (Render) | `0` |
 
-### Teachable Machine food model (optional)
+### Teachable Machine food model (needed for food photos)
 1. Go to https://teachablemachine.withgoogle.com → **Image Project**.
 2. Create classes named exactly like the food ids in [bodywise/foods.py](bodywise/foods.py), e.g. `nasi_lemak`, `roti_canai`, `teh_tarik`. Use 50+ photos each.
 3. Train → **Export Model** → **Upload (shareable link)** → paste the link into `TM_MODEL_URL`.
-4. The app classifies on the device first and asks Gemini Vision when its confidence is below 60%.
+4. The app classifies on the device. If the model is less than 60% sure, it shows its top guesses for the user to pick, or the user searches the food list.
 
 ## Deploy (free public link)
 
@@ -109,7 +109,7 @@ Phone / browser (HTML, CSS, JavaScript modules, Three.js, service worker)
    │  JSON + photo uploads
 Flask API (app.py) ── input validation, rate limits, daily AI cap, security headers
    ├─ bodywise/health.py   formulas + safety guardrails (no AI)
-   ├─ bodywise/ai.py       Gemini: meal plan, food photo, label, menu, coach (+ demo fallbacks)
+   ├─ bodywise/ai.py       Gemini: meal plan, label, menu, coach (+ demo fallbacks)
    ├─ bodywise/predict.py  scikit-learn regression + plateau detection
    └─ bodywise/foods.py    Malaysian food list + Smart Swap
 ```

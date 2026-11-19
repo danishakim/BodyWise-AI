@@ -242,13 +242,6 @@ def create_app() -> Flask:
         plan = ai.generate_plan(req.profile.model_dump(), metrics, req.prefs)
         return jsonify(metrics=metrics, plan=plan)
 
-    @app.post("/api/food/recognize")
-    @same_site_only
-    @ai_quota
-    def api_recognize():
-        data, mime = read_image()
-        return jsonify(ai.recognize_food(data, mime))
-
     @app.post("/api/menu/scan")
     @same_site_only
     @ai_quota

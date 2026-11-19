@@ -68,16 +68,17 @@ def test_coach_demo(client):
 
 
 def test_image_upload_rejects_non_images(client):
-    r = client.post("/api/food/recognize", data={"image": (io.BytesIO(b"not an image"), "x.jpg")},
+    r = client.post("/api/label/scan", data={"image": (io.BytesIO(b"not an image"), "x.jpg")},
                     content_type="multipart/form-data", headers=SAME_SITE)
     assert r.status_code == 400
 
 
-def test_recognize_demo_mode(client):
+def test_food_photos_are_not_sent_to_the_server(client):
+    # Food photos are recognised on-device by Teachable Machine; there is no server endpoint for them.
     jpeg = b"\xff\xd8\xff\xe0" + b"0" * 100
     r = client.post("/api/food/recognize", data={"image": (io.BytesIO(jpeg), "x.jpg")}, content_type="multipart/form-data",
                     headers=SAME_SITE)
-    assert r.status_code == 200 and r.get_json()["ok"] is False
+    assert r.status_code in (404, 405)
 
 
 def test_predict_endpoint(client):

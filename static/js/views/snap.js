@@ -1,4 +1,5 @@
-// Food photo recognition (Teachable Machine on-device → Gemini Vision fallback)
+// Snap & Scan: food photos → Teachable Machine only (on-device);
+// nutrition labels and menu boards → server-side AI (Gemini) via /api/label/scan and /api/menu/scan.
 // and the exclusive Menu Scanner.
 import { api } from '../api.js';
 import { store, addMeal, removeMeal, mealsOn, todayTotals, targetFor } from '../store.js';
@@ -52,7 +53,7 @@ function renderLabel(root, ctx) {
       <div class="stack">
         ${dropzone('label', 'Photograph the nutrition table on the pack', 'Maklumat Pemakanan / Nutrition Information, flat and well-lit')}
         <p class="tiny muted">For packaged food like bread, Milo or Mamee. The AI reads the exact numbers printed by the manufacturer, then checks that they add up.</p>
-        ${!ctx.status.ai_enabled ? html`<div class="alert">${icon.alert}<span>Label scanning needs a Gemini API key (demo mode is on).</span></div>` : ''}
+        ${!ctx.status.ai_enabled ? html`<div class="alert">${icon.alert}<span>Label scanning isn't available right now.</span></div>` : ''}
       </div>
       <div id="label-result">
         <section class="card thinking"><span class="eyebrow">How it works</span>
@@ -75,7 +76,6 @@ function renderLabel(root, ctx) {
       <b class="num" style="font-size:1.15rem;color:var(--${tone})">${value ?? '—'}<span>${unit}</span></b></div>`;
     const draw = () => mount(out, html`
       <section class="card result-card stack" style="gap:14px">
-        <div class="spread"><span class="badge ai">${icon.sparkle} Gemini Vision · label</span><span class="badge">Confidence: ${r.confidence}</span></div>
         <div><h2>${r.product_name}</h2><p class="tiny muted">Per serving: ${r.serving_desc}${r.serving_g ? ` (${r.serving_g} g)` : ''}</p></div>
         <div class="spread">
           <div class="big-number num">${Math.round(r.kcal * servings)}<small>kcal</small></div>
@@ -140,13 +140,11 @@ async function preparePhoto(root, id, file) {
 
 // ---------------- Food mode ----------------
 function renderFood(root, ctx) {
-  const { status } = ctx;
-  const engine = status.tm_model_url ? 'Teachable Machine (on-device) + Gemini Vision' : status.ai_enabled ? 'Gemini Vision' : 'Manual (demo mode)';
   mount(root, html`
     <div class="grid grid-2">
       <div class="stack">
-        ${dropzone('food', 'Take or upload a photo of your meal', 'AI identifies the dish and estimates calories')}
-        <p class="tiny muted">Engine: <b>${engine}</b>. Photos are resized in your browser and never stored.</p>
+        ${dropzone('food', 'Take or upload a photo of your meal', 'Our Teachable Machine model recognises the dish')}
+        <p class="tiny muted">Recognised on your device. Photos are never uploaded or stored.</p>
         <div id="food-result"></div>
       </div>
       <div class="stack">
@@ -178,47 +176,54 @@ function renderFood(root, ctx) {
   else api.foods().then((r) => { foods = r.foods; draw(); }).catch((e) => toast(e.message, 'error'));
 }
 
+// Food photos are recognised ONLY by our Teachable Machine model, on the device.
+// Calories come from our food list (bodywise/foods.py), matched by the model's class name.
 async function recognise(root, ctx, file) {
   const out = $('#food-result', root);
   let photo;
   try { photo = await preparePhoto(root, 'food', file); } catch (e) { toast(e.message, 'error'); return; }
-  mount(out, html`<div class="card thinking"><div class="thinking-dots"><i></i><i></i><i></i></div><p class="muted">Analysing your food…</p></div>`);
+  const stop = () => $('#food-zone .scan-line', root)?.remove();
+  if (!ctx.status.tm_model_url) {
+    stop();
+    mount(out, html`<div class="alert">${icon.info}<span>The food recognition model isn't set up yet. Search for your food instead.</span></div>`);
+    return;
+  }
+  mount(out, html`<div class="card thinking"><div class="thinking-dots"><i></i><i></i><i></i></div><p class="muted">Recognising your food…</p></div>`);
 
-  let result = null;
-  let reason = '';
+  let preds;
   try {
-    if (ctx.status.tm_model_url) {
-      try {
-        const model = await loadTM(ctx.status.tm_model_url);
-        const preds = (await model.predict(photo.img)).sort((a, b) => b.probability - a.probability);
-        const top = preds[0];
-        foods ||= (await api.foods()).foods;
-        const f = foods.find((x) => x.id === top.className);
-        if (f && top.probability >= TM_MIN_CONFIDENCE) {
-          result = { name: f.name, kcal: f.kcal, protein: f.protein, portion: '1 standard serving',
-            confidence: `${Math.round(top.probability * 100)}%`, source: 'Teachable Machine (on-device)', note: '' };
-        }
-      } catch (e) { console.warn('Teachable Machine failed, falling back', e); }
-    }
-    if (!result && ctx.status.ai_enabled) {
-      const r = await api.recognize(photo.blob);
-      if (r.ok) {
-        result = { name: r.db_match?.name || r.name, kcal: r.kcal, protein: r.protein_g, portion: r.portion,
-          confidence: r.confidence, source: 'Gemini Vision', note: r.note };
-      } else reason = r.reason;
-    }
-    if (!result && !reason) reason = 'AI vision is offline in demo mode. Search for your food on the right instead.';
-  } catch (e) { reason = e.message; }
-  $('#food-zone .scan-line', root)?.remove();
+    const model = await loadTM(ctx.status.tm_model_url);
+    preds = (await model.predict(photo.img)).sort((a, b) => b.probability - a.probability);
+    foods ||= (await api.foods()).foods;
+  } catch (e) {
+    console.warn('Teachable Machine failed', e);
+    stop();
+    mount(out, html`<div class="alert">${icon.info}<span>Couldn't load the food model. Check your internet connection, or search for your food instead.</span></div>`);
+    return;
+  }
+  stop();
 
-  if (!result) { mount(out, html`<div class="alert">${icon.info}<span>${reason}</span></div>`); return; }
+  const known = preds.map((p) => ({ p, f: foods.find((x) => x.id === p.className) })).filter((x) => x.f);
+  const best = known[0];
+  if (best && best.p === preds[0] && best.p.probability >= TM_MIN_CONFIDENCE) { showFood(root, out, best.f); return; }
 
+  // Not sure: offer the model's best guesses instead of guessing for the user.
+  const guesses = known.filter((x) => x.p.probability >= 0.1).slice(0, 3);
+  mount(out, html`<section class="card result-card stack" style="gap:10px">
+    <b>Not sure what this is</b>
+    <p class="tiny muted">${guesses.length ? 'Is it one of these?' : "This food isn't in our model yet. Search for it instead."}</p>
+    ${guesses.length ? html`<div class="chips">${guesses.map((g, i) => html`<button class="chip" data-guess="${i}">${g.f.name}</button>`)}</div>` : ''}
+  </section>`);
+  $$('[data-guess]', out).forEach((b) => b.addEventListener('click', () => showFood(root, out, guesses[Number(b.dataset.guess)].f)));
+}
+
+function showFood(root, out, f) {
+  const result = { name: f.name, kcal: f.kcal, protein: f.protein, portion: '1 standard serving' };
   let servings = 1;
   mount(out, html`
     <section class="card result-card">
-      <div class="spread"><span class="badge ai">${icon.sparkle} ${result.source}</span><span class="badge">Confidence: ${result.confidence}</span></div>
-      <h2 style="margin:12px 0 4px">${result.name}</h2>
-      <p class="muted tiny">${result.portion}${result.note ? ` · ${result.note}` : ''}</p>
+      <h2 style="margin:0 0 4px">${result.name}</h2>
+      <p class="muted tiny">${result.portion} · ${result.protein} g protein</p>
       <div class="spread" style="margin-top:14px">
         <div class="big-number num" id="r-kcal">${result.kcal}<small>kcal</small></div>
         <div class="stepper" aria-label="Servings"><button type="button" id="r-minus" aria-label="Fewer servings">−</button><output id="r-serv">1×</output><button type="button" id="r-plus" aria-label="More servings">+</button></div>
@@ -233,7 +238,7 @@ async function recognise(root, ctx, file) {
   $('#r-plus', out).addEventListener('click', () => { servings = Math.min(4, servings + 0.5); upd(); });
   $('#r-add', out).addEventListener('click', () => {
     addMeal({ name: servings === 1 ? result.name : `${result.name} ×${servings}`, kcal: result.kcal * servings,
-      protein: (result.protein || 0) * servings, source: result.source });
+      protein: (result.protein || 0) * servings, source: 'Food photo' });
     toast(`Logged ${result.name}`);
     renderLog(root);
     out.innerHTML = '';
@@ -266,7 +271,7 @@ function renderMenu(root, ctx) {
       <div class="stack">
         ${dropzone('menu', 'Photograph a menu or hawker signboard', 'AI reads every dish and ranks them for your goal')}
         <div class="alert info">${icon.info}<span>You have <b class="num">${fmt.kcal(remaining)} kcal</b> left today. The AI picks dishes that fit, with an ordering tip for each.</span></div>
-        ${!ctx.status.ai_enabled ? html`<div class="alert">${icon.alert}<span>Menu Scanner needs a Gemini API key (demo mode is on).</span></div>` : ''}
+        ${!ctx.status.ai_enabled ? html`<div class="alert">${icon.alert}<span>Menu scanning isn't available right now.</span></div>` : ''}
       </div>
       <div id="menu-result">
         <section class="card thinking"><span class="badge excl">EXCLUSIVE</span><h2>Menu Scanner</h2>
