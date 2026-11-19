@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>BodyWise AI</title>
+  <meta name="description" content="Personal AI weight coach for Malaysians: 3D body, AI meal plans, food photo logging, progress prediction.">
+  <meta name="theme-color" content="#EC4D86">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/img/logo.svg" type="image/svg+xml">
+  <link rel="icon" href="/img/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="BodyWise">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/v2.css">
+  <script type="module" src="/js/main.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#view">Skip to content</a>
+  <div class="app" id="app" data-ready="false">
+    <aside class="rail" aria-label="Main navigation">
+      <a class="brand" href="#/home" aria-label="BodyWise AI home">
+        <img src="/img/logo.svg" alt="" width="36" height="36">
+        <span>Body<em>Wise</em></span>
+      </a>
+      <nav class="rail-nav" id="rail-nav"></nav>
+    </aside>
+
+    <header class="topbar">
+      <a class="brand" href="#/home" aria-label="BodyWise AI home">
+        <img src="/img/logo.svg" alt="" width="30" height="30">
+        <span>Body<em>Wise</em></span>
+      </a>
+      <a class="icon-btn" href="#/coach" aria-label="Ask the AI coach" id="top-coach"></a>
+    </header>
+
+    <main id="view" class="view" tabindex="-1"></main>
+
+    <nav class="tabbar" id="tabbar" aria-label="Main navigation"></nav>
+  </div>
+  <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+  <noscript><p class="noscript">BodyWise AI needs JavaScript to run.</p></noscript>
+</body>
+</html>

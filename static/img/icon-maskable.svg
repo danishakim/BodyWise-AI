@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">
+  <!-- Full-bleed version for Android adaptive / maskable icons (glyph kept inside the 80% safe zone). -->
+  <rect width="128" height="128" fill="#EC4D86"/>
+  <g transform="translate(64 66) scale(0.74) translate(-64 -67)">
+    <path d="M64 108C42 94 35 77 39 61C43 48 53 42 64 39C75 42 85 48 89 61C93 77 86 94 64 108Z" fill="#FFFFFF"/>
+    <path d="M64 101V53M64 77L50 63M64 77L78 63" stroke="#EC4D86" stroke-width="5.5" stroke-linecap="round"/>
+    <circle cx="64" cy="27" r="9" fill="#FFFFFF"/>
+  </g>
+</svg>
