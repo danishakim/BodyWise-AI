@@ -6,6 +6,7 @@ import { fmt } from '../lib/format.js';
 import { Icon } from '../lib/icons.jsx';
 import { useApp } from '../components/AppContext.js';
 import { syncEnabled, useSyncStatus, loadSync } from '../lib/syncState.js';
+import { isNative } from '../lib/native.js';
 
 const SYNC_LABEL = { connecting: 'Connecting…', saving: 'Saving…', synced: 'Synced', offline: 'Offline', error: 'Not synced' };
 
@@ -90,6 +91,7 @@ export default function Settings() {
           {['light', 'dark'].map((t) => <button key={t} aria-pressed={s.theme === t} onClick={() => setTheme(t)}>{t[0].toUpperCase() + t.slice(1)}</button>)}
         </div></div></div>
 
+      {!isNative && (<>
       <div className="group-label">App</div>
       <div className="group">
         {isStandalone() ? (
@@ -101,15 +103,16 @@ export default function Settings() {
             <Icon name="chevron" className="chev" /></button>
         )}
       </div>
+      </>)}
 
       {syncEnabled && (<>
         <div className="group-label">Cloud backup</div>
         <div className="group">
           <div className="lrow static"><span className="ic"><Icon name="cloud" /></span>
             <span className="tx"><b>{sync.google ? 'Backed up with Google' : 'Saved to the cloud'}</b>
-              <small>{sync.google ? sync.email : 'No login needed. Link Google to use BodyWise on another phone.'}</small></span>
+              <small>{sync.google ? sync.email : isNative ? 'No login needed. Saved privately to your cloud space.' : 'No login needed. Link Google to use BodyWise on another phone.'}</small></span>
             <span className={`val ${sync.state === 'error' || sync.state === 'offline' ? 'warn' : ''}`} title={sync.error || undefined}>{SYNC_LABEL[sync.state] || ''}</span></div>
-          {sync.google ? (
+          {isNative ? null : sync.google ? (
             <button className="lrow" disabled={busy} onClick={() => cloud('signOut', 'Sign out of Google on this device? Your data stays safe in your account.').then(() => navigate('welcome'))}>
               <span className="ic"><Icon name="logout" /></span><span className="tx"><b>Sign out</b><small>This phone starts fresh; sign in again any time</small></span></button>
           ) : (<>

@@ -1,4 +1,6 @@
 // Thin fetch wrapper: timeouts, JSON errors, one place for every endpoint.
+// Web: same origin (''). Android app: VITE_API_BASE from .env.android, e.g. https://bodywise.vercel.app
+const BASE = (import.meta.env.VITE_API_BASE || '').replace(/\/$/, '');
 
 async function request(path, { method = 'GET', json, form, timeout = 60000 } = {}) {
   const ctrl = new AbortController();
@@ -6,7 +8,7 @@ async function request(path, { method = 'GET', json, form, timeout = 60000 } = {
   try {
     const headers = { 'X-BodyWise': '1' };                     // custom header → blocks cross-site form posts
     if (json) headers['Content-Type'] = 'application/json';
-    const res = await fetch(path, { method, signal: ctrl.signal, headers, body: json ? JSON.stringify(json) : form });
+    const res = await fetch(BASE + path, { method, signal: ctrl.signal, headers, body: json ? JSON.stringify(json) : form });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
       const err = new Error(data.error || `Request failed (${res.status})`);

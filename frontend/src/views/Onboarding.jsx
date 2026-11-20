@@ -11,6 +11,7 @@ import { useApp } from '../components/AppContext.js';
 import Body3D from '../components/Body3D.jsx';
 import Wheel from '../components/Wheel.jsx';
 import { syncEnabled, loadSync } from '../lib/syncState.js';
+import { isNative } from '../lib/native.js';
 
 const GOALS = [
   { key: 'maintain', e: '⚖️', t: 'Stay healthy', d: 'Keep your weight, eat better' },
@@ -153,7 +154,7 @@ function Welcome({ go, app }) {
               <button className="btn btn-soft btn-lg" style={{ flex: 1 }} onClick={() => file.current.click()}>Backup file</button>
             </div>
           ) : (
-            <button className="btn btn-soft btn-lg btn-block" onClick={() => (syncEnabled ? setRestore(true) : file.current.click())}>I already have a plan</button>
+            <button className="btn btn-soft btn-lg btn-block" onClick={() => (syncEnabled && !isNative ? setRestore(true) : file.current.click())}>I already have a plan</button>
           )}
         </>)}
         <input ref={file} type="file" accept="application/json,.json" className="sr-only" aria-label="Restore a BodyWise backup file"

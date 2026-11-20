@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './lib/api.js';
 import { store, useStore, applyTheme } from './lib/store.js';
 import { syncEnabled, loadSync } from './lib/syncState.js';
+import { isNative } from './lib/native.js';
 import { Icon } from './lib/icons.jsx';
 import { AppContext } from './components/AppContext.js';
 import Logged from './components/Logged.jsx';
@@ -71,7 +72,7 @@ export default function App() {
 
   useEffect(() => {
     api.status().then(setStatus).catch(() => toast('Cannot reach the BodyWise server. Is it running?', 'error'));
-    if ('serviceWorker' in navigator && import.meta.env.PROD) {
+    if ('serviceWorker' in navigator && import.meta.env.PROD && !isNative) {   // the APK ships its files; no SW needed
       navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
     const onPrompt = (e) => { e.preventDefault(); installPrompt.current = e; };

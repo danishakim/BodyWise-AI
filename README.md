@@ -85,7 +85,7 @@ npm run build    # writes frontend/dist, which FastAPI serves
 **Demo mode:** without a Gemini key the app still works. Meal plans come from the built-in Malaysian food list and
 the coach gives rule-based replies, so a presentation never breaks.
 
-**Tests:** `python -m pytest -q` runs 46 tests in demo mode, so they never call the paid API or Supabase.
+**Tests:** `python -m pytest -q` runs 47 tests in demo mode, so they never call the paid API or Supabase.
 
 ### Settings (`.env`)
 
@@ -136,6 +136,21 @@ backup → Back up with Google** links a Google account to the same data, so it 
 AI rate limits are stored in Supabase because serverless functions don't share memory. If Supabase is unreachable,
 the API falls back to per-instance limits instead of failing.
 
+## Android app (APK)
+
+The same React app is packaged as a native Android app with [Capacitor](https://capacitorjs.com) (`frontend/android/`).
+Screens, the 3D body and Teachable Machine run inside the app; AI features call the deployed FastAPI backend.
+
+1. Deploy to Vercel (above) and put the link in [.env.android](.env.android): `VITE_API_BASE=https://your-app.vercel.app`.
+2. With Android Studio installed, run:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File frontenduild-apk.ps1
+   ```
+3. Copy `BodyWise.apk` (repo root) to an Android phone and open it (allow "install unknown apps").
+
+Or open `frontend/android` in Android Studio and press **Run** to install it on a connected phone or emulator.
+The backend only accepts cross-origin calls from the app's own origin (`https://localhost`), not from other websites.
+
 ---
 
 ## How it works
@@ -164,6 +179,7 @@ frontend/dist/          production build (served by FastAPI locally, by Vercel's
 tests/                  pytest suite
 supabase/schema.sql     database tables, Row-Level Security policies, AI quota function
 vercel.json             Vercel build, routing and security headers
+frontend/android/       Capacitor Android project (APK); build with frontend/build-apk.ps1
 ```
 
 ## Responsible AI

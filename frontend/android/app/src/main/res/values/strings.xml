@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">BodyWise</string>
+    <string name="title_activity_main">BodyWise</string>
+    <string name="package_name">com.bodywise.ai</string>
+    <string name="custom_url_scheme">com.bodywise.ai</string>
+</resources>

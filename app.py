@@ -15,6 +15,7 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
@@ -264,6 +265,13 @@ def create_app() -> FastAPI:
         return HTMLResponse("<h1>BodyWise</h1><p>Frontend not built. Run <code>npm run build</code> in <code>frontend/</code>.</p>", status_code=503)
 
     app.mount("/", StaticFiles(directory=FRONTEND_DIST, check_dir=False), name="frontend")
+
+    # The Android app (Capacitor) loads its screens from https://localhost and calls this API cross-origin.
+    # Only those app origins are allowed, so other websites still can't send our X-BodyWise header.
+    origins = ["https://localhost", "capacitor://localhost", "http://localhost"]
+    origins += [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
+    app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST"],
+                       allow_headers=["Content-Type", "X-BodyWise"], max_age=600)
 
     if os.getenv("TRUST_PROXY") == "1":
         # Behind exactly one reverse proxy: trust X-Forwarded-For/Proto for the real client IP and https.

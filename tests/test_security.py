@@ -122,3 +122,12 @@ def test_vercel_uses_platform_client_ip(monkeypatch):
     assert c.post("/api/plan", json=PLAN, headers={"x-real-ip": "9.9.9.9"}).status_code == 200
     assert c.post("/api/plan", json=PLAN, headers={"x-real-ip": "9.9.9.9"}).status_code == 429
     assert c.post("/api/plan", json=PLAN, headers={"x-real-ip": "8.8.8.8"}).status_code == 200
+
+
+def test_cors_allows_the_android_app_only(monkeypatch):
+    c = make_client(monkeypatch)
+    pre = {"Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type,x-bodywise"}
+    ok = c.options("/api/plan", headers={"Origin": "https://localhost", **pre})
+    assert ok.status_code == 200 and ok.headers["access-control-allow-origin"] == "https://localhost"
+    bad = c.options("/api/plan", headers={"Origin": "https://evil.example", **pre})
+    assert "access-control-allow-origin" not in bad.headers

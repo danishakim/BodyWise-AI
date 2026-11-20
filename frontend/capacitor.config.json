@@ -1,0 +1,7 @@
+{
+  "appId": "com.bodywise.ai",
+  "appName": "BodyWise",
+  "webDir": "dist-android",
+  "android": { "backgroundColor": "#EC4D86" },
+  "server": { "androidScheme": "https" }
+}
