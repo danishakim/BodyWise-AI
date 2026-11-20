@@ -17,6 +17,7 @@ const noEvalGlobal = {
 // Prod: `npm run build` writes dist/, which FastAPI serves.
 export default defineConfig({
   plugins: [react(), noEvalGlobal],
+  envDir: '..',   // one .env at the repo root; only VITE_* values reach the browser
   server: { port: 5173, proxy: { '/api': 'http://127.0.0.1:5000' } },
   build: { outDir: 'dist', emptyOutDir: true, chunkSizeWarningLimit: 1600 },
 });

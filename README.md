@@ -8,7 +8,7 @@ meal plan written by AI, food-photo and nutrition-label logging, an AI coach, an
 when you'll reach your goal. It runs in the browser and installs on a phone like an app.
 
 - **Design (Figma):** https://www.figma.com/design/yFMT2RV65E5SPAXmv7bxuu
-- **Live app:** *add your Render link here after deploying*
+- **Live app:** *add your Vercel link here after deploying*
 
 > Student prototype, not medical advice. Calorie values are approximate; verify with MyFCD.
 
@@ -52,7 +52,7 @@ Home · Plan · Snap (Food / Label / Menu) · Progress · Profile · Settings ·
 - **Installable (PWA):** on a phone, open the link and choose *Add to Home Screen*. It opens full-screen with the pink BodyWise icon, and the app's screens load offline.
 - **Light mode by default**, with an optional dark theme (Settings → Appearance).
 - **Every launch opens with the splash and welcome screens.** Returning users tap *Continue* to pick up where they left off.
-- **No account needed:** data stays in your browser on your device. Settings lets you export it or delete it.
+- **No account needed:** you're signed in anonymously and your data syncs to Supabase in the background (or stays on the device if Supabase isn't set up). Optionally link Google to restore it on another phone. Settings lets you export or delete it.
 
 ---
 
@@ -64,7 +64,7 @@ Requirements: Python 3.12+ and Google Chrome or Edge. Node.js 18+ only if you ch
 ```bash
 python -m venv .venv
 .venv\Scripts\activate                 # macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 copy .env.example .env                 # macOS/Linux: cp .env.example .env
 # put your free Gemini key in .env  →  https://aistudio.google.com/apikey
 python app.py
@@ -85,7 +85,7 @@ npm run build    # writes frontend/dist, which FastAPI serves
 **Demo mode:** without a Gemini key the app still works. Meal plans come from the built-in Malaysian food list and
 the coach gives rule-based replies, so a presentation never breaks.
 
-**Tests:** `python -m pytest -q` runs 43 tests in demo mode, so they never call the paid API.
+**Tests:** `python -m pytest -q` runs 46 tests in demo mode, so they never call the paid API or Supabase.
 
 ### Settings (`.env`)
 
@@ -98,7 +98,10 @@ the coach gives rule-based replies, so a presentation never breaks.
 | `AI_RATE_LIMIT_PER_MIN` | AI requests per minute per visitor | `10` |
 | `AI_DAILY_PER_IP` | AI requests per day per visitor | `50` |
 | `AI_DAILY_CAP` | Total AI requests per day; after that everything switches to demo mode | `500` |
-| `TRUST_PROXY` | Set to `1` only behind one reverse proxy (Render) | `0` |
+| `VITE_SUPABASE_URL` | Supabase project URL (public) | — |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key (public, protected by Row-Level Security) | — |
+| `SUPABASE_SECRET_KEY` | Supabase secret key, server only (AI rate limits) | — |
+| `TRUST_PROXY` | Set to `1` only behind one reverse proxy (not needed on Vercel) | `0` |
 
 ### Teachable Machine food model (needed for food photos)
 1. Go to https://teachablemachine.withgoogle.com → **Image Project**.
@@ -106,13 +109,32 @@ the coach gives rule-based replies, so a presentation never breaks.
 3. Train → **Export Model** → **Upload (shareable link)** → paste the link into `TM_MODEL_URL`.
 4. The app classifies on the device. If the model is less than 60% sure, it shows its top guesses for the user to pick, or the user searches the food list.
 
-## Deploy (free public link)
+## Cloud data (Supabase)
 
-1. Push the project to GitHub (`.env` is git-ignored, so your key stays private).
-2. On https://render.com choose **New → Blueprint** and pick the repository. It reads [render.yaml](render.yaml).
-3. Enter your `GEMINI_API_KEY` when asked. After 3–5 minutes you get a link like `https://bodywise-ai.onrender.com`.
+Optional: without these keys the app keeps everything on the device, exactly as before.
 
-The free tier sleeps after 15 minutes without visitors; open the link a minute before presenting.
+1. Create a project at https://supabase.com. In **SQL Editor**, paste [supabase/schema.sql](supabase/schema.sql) and run it.
+   That creates five tables (`profiles`, `plans`, `weight_logs`, `meal_logs`, `chat_messages`), all protected by
+   Row-Level Security so each person can only read their own rows, plus a server-only `ai_quota` table for the AI limits.
+2. **Authentication → Sign In / Providers:** turn on **Allow anonymous sign-ins** and **Allow manual linking**.
+3. *(Optional, for "Back up with Google")* **Authentication → Providers → Google:** enable it with a Google Cloud OAuth
+   client ID and secret, then add your site URL (e.g. `https://your-app.vercel.app`) under **URL Configuration → Redirect URLs**.
+4. **Project Settings → API Keys:** copy the project URL, the **publishable** key and the **secret** key into `.env`
+   (`VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`), then rebuild the frontend.
+
+There's no login screen: everyone is signed in anonymously and their data syncs in the background. **Settings → Cloud
+backup → Back up with Google** links a Google account to the same data, so it can be restored on another phone.
+
+## Deploy (Vercel)
+
+1. Push the project to GitHub (`.env` is git-ignored, so your keys stay private).
+2. On https://vercel.com choose **Add New → Project** and import the repository. [vercel.json](vercel.json) already sets
+   the build (`frontend/` → `frontend/dist`) and routes `/api/*` to FastAPI ([api/index.py](api/index.py)), which runs as a Python serverless function.
+3. Under **Settings → Environment Variables**, add `GEMINI_API_KEY`, `TM_MODEL_URL`, `VITE_SUPABASE_URL`,
+   `VITE_SUPABASE_PUBLISHABLE_KEY` and `SUPABASE_SECRET_KEY` (and optionally the `AI_*` limits). Redeploy.
+
+AI rate limits are stored in Supabase because serverless functions don't share memory. If Supabase is unreachable,
+the API falls back to per-instance limits instead of failing.
 
 ---
 
@@ -120,8 +142,9 @@ The free tier sleeps after 15 minutes without visitors; open the link a minute b
 
 ```
 Phone / browser (React + Vite, Three.js, TensorFlow.js / Teachable Machine, service worker)
+   │  your data (anonymous or Google login) ──────► Supabase: Postgres + Auth, Row-Level Security
    │  JSON + photo uploads
-FastAPI (app.py) ──── Pydantic validation, rate limits, daily AI cap, security headers
+FastAPI on Vercel (app.py) ── validation, AI rate limits (kept in Supabase), daily AI cap, security headers
    ├─ bodywise/health.py   formulas + safety guardrails (no AI)
    ├─ bodywise/ai.py       Gemini: meal plan, label, menu, coach (+ demo fallbacks)
    ├─ bodywise/predict.py  scikit-learn regression + plateau detection
@@ -130,16 +153,17 @@ FastAPI (app.py) ──── Pydantic validation, rate limits, daily AI cap, se
 
 ```
 app.py                  FastAPI app: routes, quotas, security headers; serves frontend/dist
-bodywise/               Python logic (health, ai, predict, foods)
+api/index.py            Vercel entry point for the FastAPI app
+bodywise/               Python logic (health, ai, predict, foods, quota)
 frontend/src/App.jsx    app shell: hash router, navigation, toasts
 frontend/src/views/     one React component per screen (Onboarding, Home, Plan, Snap, Progress, Coach, Profile, Settings)
-frontend/src/lib/       api.js, store.js (localStorage state), avatar3d.js (3D body), format.js, icons.jsx
+frontend/src/lib/       api.js, store.js (localStorage state), sync.js (Supabase sync + Google), avatar3d.js (3D body)
 frontend/src/styles/    styles.css (base + colour tokens), v2.css, flow.css (pink design)
 frontend/public/        sw.js (offline + install), manifest.webmanifest, img/ icons
-frontend/dist/          production build (committed, served by FastAPI)
+frontend/dist/          production build (served by FastAPI locally, by Vercel's CDN in production)
 tests/                  pytest suite
-firebase/               Firestore schema design (for the report; not used by the app)
-render.yaml             Render deployment
+supabase/schema.sql     database tables, Row-Level Security policies, AI quota function
+vercel.json             Vercel build, routing and security headers
 ```
 
 ## Responsible AI

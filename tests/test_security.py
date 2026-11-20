@@ -88,3 +88,37 @@ def test_daily_cap_trips(monkeypatch):
     monkeypatch.setenv("AI_DAILY_CAP", "2")
     cap = ai.DailyCap()
     assert [cap.take() for _ in range(3)] == [True, True, False]
+
+
+def test_supabase_quota_used_when_configured(monkeypatch):
+    from bodywise import quota
+
+    calls = []
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_SECRET_KEY", "sb_secret_test")
+    monkeypatch.setattr(quota, "_rpc", lambda key, m, d: calls.append(key) or ("day" if len(calls) > 1 else None))
+    q = quota.Quota()
+    assert q.allow("1.2.3.4", 10, 50) is None
+    assert q.allow("1.2.3.4", 10, 50) == quota.MSG_DAY
+    assert calls[0].startswith("ip:") and "1.2.3.4" not in calls[0]          # IPs are hashed, never stored raw
+
+
+def test_supabase_outage_falls_back_to_memory(monkeypatch):
+    from bodywise import quota
+
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_SECRET_KEY", "sb_secret_test")
+
+    def down(*_):
+        raise ConnectionError("supabase down")
+
+    monkeypatch.setattr(quota, "_rpc", down)
+    q = quota.Quota()
+    assert [q.allow("5.5.5.5", 2, 50) for _ in range(3)] == [None, None, quota.MSG_MINUTE]
+
+
+def test_vercel_uses_platform_client_ip(monkeypatch):
+    c = make_client(monkeypatch, AI_RATE_LIMIT_PER_MIN=1, VERCEL=1)
+    assert c.post("/api/plan", json=PLAN, headers={"x-real-ip": "9.9.9.9"}).status_code == 200
+    assert c.post("/api/plan", json=PLAN, headers={"x-real-ip": "9.9.9.9"}).status_code == 429
+    assert c.post("/api/plan", json=PLAN, headers={"x-real-ip": "8.8.8.8"}).status_code == 200

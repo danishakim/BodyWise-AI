@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './lib/api.js';
 import { store, useStore, applyTheme } from './lib/store.js';
+import { syncEnabled, loadSync } from './lib/syncState.js';
 import { Icon } from './lib/icons.jsx';
 import { AppContext } from './components/AppContext.js';
 import Logged from './components/Logged.jsx';
@@ -62,6 +63,11 @@ export default function App() {
     setToasts((t) => [...t, { id, message, type }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3400);
   }, []);
+
+  // Cloud sync (Supabase) starts during the splash, so a returning user's data is ready by Welcome.
+  useEffect(() => {
+    if (syncEnabled) loadSync().then((m) => m.startSync({ toast })).catch(() => {});
+  }, [toast]);
 
   useEffect(() => {
     api.status().then(setStatus).catch(() => toast('Cannot reach the BodyWise server. Is it running?', 'error'));

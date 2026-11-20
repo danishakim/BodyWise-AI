@@ -9,10 +9,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import threading
-import time
-from collections import defaultdict, deque
-from datetime import date
 from pathlib import Path
 
 import uvicorn
@@ -28,12 +24,13 @@ from bodywise import ai
 from bodywise.foods import FOODS, smart_swaps
 from bodywise.health import Profile, assess, rebalance_for_event
 from bodywise.predict import PredictRequest, predict
+from bodywise.quota import Quota
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("bodywise")
 
-MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+MAX_UPLOAD_BYTES = 4 * 1024 * 1024   # Vercel rejects request bodies over 4.5 MB
 FRONTEND_DIST = Path(__file__).resolve().parent / "frontend" / "dist"
 
 APP_CSP = (
@@ -42,7 +39,7 @@ APP_CSP = (
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "font-src https://fonts.gstatic.com; "
     "img-src 'self' data: blob:; "
-    "connect-src 'self' https://teachablemachine.withgoogle.com https://storage.googleapis.com; "
+    "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://teachablemachine.withgoogle.com https://storage.googleapis.com; "
     "frame-src 'none'; "
     "worker-src 'self'; manifest-src 'self'; "
     "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
@@ -106,42 +103,12 @@ class CoachRequest(BaseModel):
     today: TodaySummary = TodaySummary()
 
 
-# --- Quotas: per-minute rate limit + per-day allowance, keyed by client IP ---
-class Quota:
-    """In-memory limiter. Accurate with ONE worker process (see render.yaml);
-    move to Redis/Firestore counters when scaling out."""
-
-    def __init__(self):
-        self.minute: dict[str, deque] = defaultdict(deque)
-        self.daily: dict[str, int] = defaultdict(int)
-        self.day = date.today()
-        self.lock = threading.Lock()
-
-    def allow(self, key: str, per_minute: int, per_day: int) -> str | None:
-        now = time.monotonic()
-        with self.lock:
-            if date.today() != self.day:                       # new day: reset allowances
-                self.day, self.daily = date.today(), defaultdict(int)
-            if len(self.minute) > 50_000:                       # bound memory against key spraying
-                self.minute = defaultdict(deque, {k: q for k, q in self.minute.items() if q and now - q[-1] < 60})
-            q = self.minute[key]
-            while q and now - q[0] > 60:
-                q.popleft()
-            if len(q) >= per_minute:
-                return "Too many requests. Please wait a minute."
-            if self.daily[key] >= per_day:
-                return "You've reached today's AI limit. It resets tomorrow; the app still works without AI."
-            q.append(now)
-            self.daily[key] += 1
-            return None
-
-
 def read_image(image: UploadFile | None) -> tuple[bytes, str]:
     if image is None:
         raise UserError("No image uploaded.")
     data = image.file.read(MAX_UPLOAD_BYTES + 1)
     if len(data) > MAX_UPLOAD_BYTES:
-        raise ApiError(413, "Image is too large (max 5 MB).")
+        raise ApiError(413, "Image is too large (max 4 MB).")
     mime = sniff_image(data)
     if not data or mime is None:
         raise UserError("Please upload a JPEG, PNG or WebP image.")
@@ -161,9 +128,10 @@ def create_app() -> FastAPI:
 
     # --- Dependencies -----------------------------------------------------
     def ai_quota(request: Request) -> None:
-        # Real client IP: ProxyHeadersMiddleware (TRUST_PROXY=1) makes request.client correct behind Render.
-        ip = request.client.host if request.client else "anon"
-        msg = quota.allow(f"ip:{ip}", per_min, per_day)
+        # Real client IP: on Vercel, x-real-ip is set by the platform (clients can't spoof it);
+        # elsewhere ProxyHeadersMiddleware (TRUST_PROXY=1) fixes request.client.
+        ip = (request.headers.get("x-real-ip") if os.getenv("VERCEL") else None) or (request.client.host if request.client else "anon")
+        msg = quota.allow(ip, per_min, per_day)
         if msg:
             raise ApiError(429, msg, "quota")
 
@@ -298,7 +266,7 @@ def create_app() -> FastAPI:
     app.mount("/", StaticFiles(directory=FRONTEND_DIST, check_dir=False), name="frontend")
 
     if os.getenv("TRUST_PROXY") == "1":
-        # Behind exactly one reverse proxy (Render): trust X-Forwarded-For/Proto for the real client IP and https.
+        # Behind exactly one reverse proxy: trust X-Forwarded-For/Proto for the real client IP and https.
         app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
     return app
 

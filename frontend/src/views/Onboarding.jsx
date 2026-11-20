@@ -4,12 +4,13 @@
 // The #/edit route starts at Goal and returns to Profile on Back.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
-import { store, addWeight } from '../lib/store.js';
+import { store, useStore, addWeight } from '../lib/store.js';
 import { fmt, bmiOf, clamp, debounce, localISO } from '../lib/format.js';
 import { Icon } from '../lib/icons.jsx';
 import { useApp } from '../components/AppContext.js';
 import Body3D from '../components/Body3D.jsx';
 import Wheel from '../components/Wheel.jsx';
+import { syncEnabled, loadSync } from '../lib/syncState.js';
 
 const GOALS = [
   { key: 'maintain', e: '⚖️', t: 'Stay healthy', d: 'Keep your weight, eat better' },
@@ -105,9 +106,15 @@ function Splash({ next }) {
 }
 
 // ---------- 02 Welcome ----------
-function Welcome({ go, app, d }) {
+function Welcome({ go, app }) {
   const file = useRef(null);
-  const returning = !!store.get().profile;
+  const saved = useStore().profile;          // live: cloud sync may load it while Welcome is showing
+  const returning = !!saved;
+  const [restore, setRestore] = useState(false);
+  const google = async () => {
+    try { await (await loadSync()).signInWithGoogle(); }
+    catch { app.toast('Google sign-in isn’t switched on for this app yet.', 'error'); }
+  };
   const importBackup = async (f) => {
     if (!f) return;
     try {
@@ -138,11 +145,18 @@ function Welcome({ go, app, d }) {
       <div style={{ flex: 1 }} />
       <div className="ob-foot">
         {returning ? (<>
-          <button className="btn btn-primary btn-lg btn-block" onClick={() => app.launch(true)}>{d.name ? `Continue as ${d.name}` : 'Continue'}</button>
+          <button className="btn btn-primary btn-lg btn-block" onClick={() => app.launch(true)}>{saved.name ? `Continue as ${saved.name}` : 'Continue'}</button>
           <button className="btn btn-soft btn-lg btn-block" onClick={() => go(1)}>Start a new plan</button>
         </>) : (<>
           <button className="btn btn-primary btn-lg btn-block" onClick={() => go(1)}>Get started</button>
-          <button className="btn btn-soft btn-lg btn-block" onClick={() => file.current.click()}>I already have a plan</button>
+          {syncEnabled && restore ? (
+            <div className="row" style={{ gap: 10 }}>
+              <button className="btn btn-soft btn-lg" style={{ flex: 1 }} onClick={google}>Sign in with Google</button>
+              <button className="btn btn-soft btn-lg" style={{ flex: 1 }} onClick={() => file.current.click()}>Backup file</button>
+            </div>
+          ) : (
+            <button className="btn btn-soft btn-lg btn-block" onClick={() => (syncEnabled ? setRestore(true) : file.current.click())}>I already have a plan</button>
+          )}
         </>)}
         <input ref={file} type="file" accept="application/json,.json" className="sr-only" aria-label="Restore a BodyWise backup file"
           onChange={(e) => importBackup(e.target.files[0])} />

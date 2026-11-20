@@ -11,6 +11,7 @@ const PATHS = {
   flame: "<path d=\"M12 22c4 0 7-3 7-7 0-5-5-7-5-12-3 2-5 5-5 8-1-1-2-2-2-4-2 2-2 5-2 8 0 4 3 7 7 7z\"/>",
   scale: "<rect x=\"3\" y=\"4\" width=\"18\" height=\"16\" rx=\"4\"/><path d=\"M8 9a5 5 0 0 1 8 0l-3 3\"/>",
   swap: "<path d=\"M4 8h13l-3-3\"/><path d=\"M20 16H7l3 3\"/>",
+  cloud: "<path d=\"M7 18a5 5 0 0 1-.6-9.96A6 6 0 0 1 18 9a4.5 4.5 0 0 1-.5 9z\"/>",
   plus: "<path d=\"M12 5v14M5 12h14\"/>",
   trash: "<path d=\"M4 7h16\"/><path d=\"M9 7V4h6v3\"/><path d=\"M6 7l1 13h10l1-13\"/>",
   check: "<path d=\"M5 12l5 5 9-10\"/>",

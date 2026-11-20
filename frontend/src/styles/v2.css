@@ -87,6 +87,7 @@ h1 em, h2 em { font-style: normal; color: var(--primary); }
 .lrow .tx b { display: block; font-weight: 600; }
 .lrow .tx small { color: var(--ink-2); font-size: .8rem; }
 .lrow .val { color: var(--ink-2); font-size: .85rem; white-space: nowrap; }
+.lrow .val.warn { color: var(--accent); font-weight: 600; }
 .lrow .chev { width: 18px; height: 18px; color: var(--ink-3); flex: none; }
 .lrow.danger .tx b { color: var(--accent); }
 .lrow.danger .ic { background: var(--accent-soft); color: var(--accent); }

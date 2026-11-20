@@ -5,6 +5,9 @@ import { store, useStore, seedDemoData, exportData, applyTheme } from '../lib/st
 import { fmt } from '../lib/format.js';
 import { Icon } from '../lib/icons.jsx';
 import { useApp } from '../components/AppContext.js';
+import { syncEnabled, useSyncStatus, loadSync } from '../lib/syncState.js';
+
+const SYNC_LABEL = { connecting: 'Connecting…', saving: 'Saving…', synced: 'Synced', offline: 'Offline', error: 'Not synced' };
 
 const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
 const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -24,6 +27,15 @@ export default function Settings() {
   const { toast, navigate, refreshMetrics, installPrompt } = useApp();
   const m = s.metrics;
   const [prefsChanged, setPrefsChanged] = useState(false);
+  const sync = useSyncStatus();
+  const [busy, setBusy] = useState(false);
+  const cloud = async (action, confirmText) => {
+    if (confirmText && !confirm(confirmText)) return;
+    setBusy(true);
+    try { await (await loadSync())[action](); }
+    catch (err) { toast(/manual linking|disabled|not enabled|provider/i.test(err.message) ? 'Google sign-in isn’t switched on for this app yet.' : err.message, 'error'); }
+    finally { setBusy(false); }
+  };
 
   useEffect(() => { if (!m && s.profile) refreshMetrics(); }, [m, s.profile, refreshMetrics]);
 
@@ -35,10 +47,10 @@ export default function Settings() {
     toast(isIOS() ? 'In Safari tap Share, then “Add to Home Screen”.' : 'Use your browser menu → “Install app” or “Add to Home screen”.');
   };
   const wipe = () => {
-    if (!confirm('Delete your profile, plan, logs and chat from this device? This cannot be undone.')) return;
+    if (!confirm(`Delete your profile, plan, logs and chat${syncEnabled ? ' from this device and the cloud' : ' from this device'}? This cannot be undone.`)) return;
     store.wipe();
     applyTheme('light');
-    toast('Your data was removed from this device');
+    toast(syncEnabled ? 'Your data was deleted' : 'Your data was removed from this device');
     navigate('welcome');
   };
 
@@ -90,10 +102,29 @@ export default function Settings() {
         )}
       </div>
 
+      {syncEnabled && (<>
+        <div className="group-label">Cloud backup</div>
+        <div className="group">
+          <div className="lrow static"><span className="ic"><Icon name="cloud" /></span>
+            <span className="tx"><b>{sync.google ? 'Backed up with Google' : 'Saved to the cloud'}</b>
+              <small>{sync.google ? sync.email : 'No login needed. Link Google to use BodyWise on another phone.'}</small></span>
+            <span className={`val ${sync.state === 'error' || sync.state === 'offline' ? 'warn' : ''}`} title={sync.error || undefined}>{SYNC_LABEL[sync.state] || ''}</span></div>
+          {sync.google ? (
+            <button className="lrow" disabled={busy} onClick={() => cloud('signOut', 'Sign out of Google on this device? Your data stays safe in your account.').then(() => navigate('welcome'))}>
+              <span className="ic"><Icon name="logout" /></span><span className="tx"><b>Sign out</b><small>This phone starts fresh; sign in again any time</small></span></button>
+          ) : (<>
+            <button className="lrow" disabled={busy} onClick={() => cloud('linkGoogle')}>
+              <span className="ic"><Icon name="shield" /></span><span className="tx"><b>Back up with Google</b><small>Keeps everything you have now</small></span><Icon name="chevron" className="chev" /></button>
+            <button className="lrow" disabled={busy} onClick={() => cloud('signInWithGoogle', 'Switch to the BodyWise data saved in your Google account? What’s on this phone now will be replaced.')}>
+              <span className="ic"><Icon name="user" /></span><span className="tx"><b>Sign in with Google</b><small>Already backed up on another device</small></span><Icon name="chevron" className="chev" /></button>
+          </>)}
+        </div>
+      </>)}
+
       <div className="group-label">Privacy &amp; data</div>
       <div className="group">
         <div className="lrow static"><span className="ic"><Icon name="shield" /></span>
-          <span className="tx"><b>Your data stays private</b><small>Stored on this device. Food photos are analysed, never saved.</small></span></div>
+          <span className="tx"><b>Your data stays private</b><small>{syncEnabled ? 'Only you can read your cloud copy. Food photos are analysed, never saved.' : 'Stored on this device. Food photos are analysed, never saved.'}</small></span></div>
         <button className="lrow" onClick={exportData}><span className="ic"><Icon name="download" /></span>
           <span className="tx"><b>Export my data</b><small>Download as JSON (unencrypted, so keep it safe)</small></span><Icon name="chevron" className="chev" /></button>
         <button className="lrow" onClick={async () => { seedDemoData(); await refreshMetrics(); toast('Sample progress loaded'); navigate('progress'); }}>
@@ -116,8 +147,8 @@ export default function Settings() {
 
       <div className="group-label">Danger zone</div>
       <div className="group"><button className="lrow danger" onClick={wipe}><span className="ic"><Icon name="trash" /></span>
-        <span className="tx"><b>Delete my data on this device</b><small>Removes profile, plan, logs and chat</small></span></button></div>
-      <p className="footnote" style={{ textAlign: 'center', margin: '24px 0 8px' }}>BodyWise AI · v2.0 · React</p>
+        <span className="tx"><b>{syncEnabled ? 'Delete my data' : 'Delete my data on this device'}</b><small>Removes profile, plan, logs and chat</small></span></button></div>
+      <p className="footnote" style={{ textAlign: 'center', margin: '24px 0 8px' }}>BodyWise AI · v2.1</p>
     </div>
   );
 }

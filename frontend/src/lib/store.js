@@ -4,13 +4,22 @@ import { useSyncExternalStore } from 'react';
 import { localISO, addDays, daysBetween } from './format.js';
 
 const KEY = 'bodywise:v1';
+
+// RFC 4122 v4 id. crypto.randomUUID only exists on https/localhost; getRandomValues works on a LAN http URL too.
+export function uuid() {
+  if (crypto.randomUUID) return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+  const h = [...b].map((x) => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
 const DEFAULTS = {
   profile: null,          // { name, sex, age, height_cm, weight_kg, activity, goal, target_kg }
   prefs: { vegetarian: false, halal: true, budget_rm: 30, puasa: false, dislikes: '' },
   metrics: null,          // from /api/assess
   plan: null,             // from /api/plan
   weights: [],            // [{ date, kg }]
-  meals: {},              // { 'YYYY-MM-DD': [{ name, kcal, protein, slot, source }] }
+  meals: {},              // { 'YYYY-MM-DD': [{ id, name, kcal, protein, slot, source, at }] }
   chat: [],               // [{ role, text }]
   event: null,            // Kenduri rebalancer { name, date, extra_kcal, days_before, days_after, result }
   theme: 'light',         // 'light' | 'dark'
@@ -22,6 +31,7 @@ function load() {
     if (!saved) return structuredClone(DEFAULTS);
     delete saved.look; // removed setting from older versions
     if (saved.theme !== 'dark') saved.theme = 'light'; // 'system' was removed: the app is light unless you pick dark
+    for (const list of Object.values(saved.meals || {})) for (const m of list) m.id ||= uuid(); // ids for cloud sync
     return { ...DEFAULTS, ...saved, prefs: { ...DEFAULTS.prefs, ...saved.prefs } };
   } catch {
     return structuredClone(DEFAULTS);
@@ -54,7 +64,7 @@ export function useStore() {
 // ---- Meals ----
 export function mealsOn(date = localISO(), s = state) { return s.meals[date] || []; }
 export function addMeal(item, date = localISO()) {
-  const list = [...mealsOn(date), { ...item, kcal: Math.round(item.kcal), protein: Math.round(item.protein || 0), at: Date.now() }];
+  const list = [...mealsOn(date), { ...item, id: uuid(), kcal: Math.round(item.kcal), protein: Math.round(item.protein || 0), at: Date.now() }];
   store.set({ meals: { ...state.meals, [date]: list } });
 }
 export function removeMeal(index, date = localISO()) {

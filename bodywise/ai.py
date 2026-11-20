@@ -124,6 +124,13 @@ class DailyCap:
 
     def take(self) -> bool:
         limit = int(os.getenv("AI_DAILY_CAP", "500"))
+        from .quota import _rpc, supabase_enabled
+
+        if supabase_enabled():                       # shared across Vercel's serverless instances
+            try:
+                return _rpc("global", 1_000_000, limit) is None
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Supabase daily cap unavailable (%s); counting in memory", str(exc)[:80])
         with self.lock:
             today = date.today()
             if today != self.day:
@@ -314,7 +321,7 @@ def _finalise_plan(plan: dict, metrics: dict, source: str) -> dict:
     return plan
 
 
-# Food PHOTOS are recognised on the device by the Teachable Machine model (static/js/views/snap.js);
+# Food PHOTOS are recognised on the device by the Teachable Machine model (frontend/src/views/Snap.jsx);
 # the server only handles nutrition labels and menu boards.
 
 # ---------------------------------------------------------------------------
