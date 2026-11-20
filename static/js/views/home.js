@@ -3,6 +3,7 @@
 import { api } from '../api.js';
 import { store, todayTotals, addMeal, mealsOn, targetFor, eventActive } from '../store.js';
 import { mountAvatar } from '../avatar.js';
+import { showLogged } from '../logged.js';
 import { html, raw, mount, icon, toast, $, $$, bmiOf, fmt, localISO, addDays, clamp } from '../ui.js';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -142,8 +143,8 @@ export function render(root, ctx) {
   $$('[data-log]', root).forEach((b) => b.addEventListener('click', () => {
     const meal = todayPlan.meals[Number(b.dataset.log)];
     addMeal({ name: meal.name, kcal: meal.kcal, protein: meal.protein_g, slot: meal.slot, source: 'plan' });
-    toast(`Logged ${meal.name}`);
     render(root, ctx);
+    showLogged(ctx, { name: meal.name, kcal: meal.kcal, slot: meal.slot });
   }));
 
   // Next best action: a protein-rich local food that fits the calories left.
@@ -164,8 +165,8 @@ export function render(root, ctx) {
       <button class="round-btn" id="add-sug" aria-label="Log ${pick.name}">${icon.plus}</button>`);
     $('#add-sug', box).addEventListener('click', () => {
       addMeal({ name: pick.name, kcal: pick.kcal, protein: pick.protein, source: 'suggestion' });
-      toast(`Logged ${pick.name}`);
       render(root, ctx);
+      showLogged(ctx, { name: pick.name, kcal: pick.kcal });
     });
   };
   suggest();

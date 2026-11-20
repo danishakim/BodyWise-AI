@@ -44,7 +44,9 @@ people give up within weeks.
 8. **Next best bite:** Home suggests a protein-rich local food that fits the calories you have left.
 
 ### Screens
-Home · Plan · Snap (Food / Label / Menu) · Progress · Profile · Settings · AI Coach, plus a 5-step onboarding.
+Home · Plan · Snap (Food / Label / Menu) · Progress · Profile · Settings · AI Coach, plus a guided onboarding
+(splash → welcome → goal → about you → height & weight wheels → goal weight with the 3D body → activity → food →
+"building your plan" → plan ready) and a "meal logged" success screen. All screens follow the Figma design.
 
 ### App experience
 - **Installable (PWA):** on a phone, open the link and choose *Add to Home Screen*. It opens full-screen with the pink BodyWise icon, and the app's screens load offline.

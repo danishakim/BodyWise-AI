@@ -4,6 +4,7 @@
 import { api } from '../api.js';
 import { store, addMeal, removeMeal, mealsOn, todayTotals, targetFor } from '../store.js';
 import { html, mount, icon, toast, $, $$, fmt, resizeImage } from '../ui.js';
+import { showLogged } from '../logged.js';
 
 let mode = 'food';
 let foods = null;
@@ -97,7 +98,7 @@ function renderLabel(root, ctx) {
       $('#l-add', out).addEventListener('click', () => {
         if (r.warnings.length && !confirm('The numbers may be misread. Add anyway?')) return;
         addMeal({ name: `${r.product_name}${servings === 1 ? '' : ` ×${servings}`}`, kcal: r.kcal * servings, protein: r.protein_g * servings, source: 'Label scan' });
-        toast(`Logged ${r.product_name}`);
+        showLogged(ctx, { name: r.product_name, kcal: r.kcal * servings });
         out.innerHTML = '';
       });
     };
@@ -205,7 +206,7 @@ async function recognise(root, ctx, file) {
 
   const known = preds.map((p) => ({ p, f: foods.find((x) => x.id === p.className) })).filter((x) => x.f);
   const best = known[0];
-  if (best && best.p === preds[0] && best.p.probability >= TM_MIN_CONFIDENCE) { showFood(root, out, best.f); return; }
+  if (best && best.p === preds[0] && best.p.probability >= TM_MIN_CONFIDENCE) { showFood(root, ctx, out, best.f); return; }
 
   // Not sure: offer the model's best guesses instead of guessing for the user.
   const guesses = known.filter((x) => x.p.probability >= 0.1).slice(0, 3);
@@ -214,10 +215,10 @@ async function recognise(root, ctx, file) {
     <p class="tiny muted">${guesses.length ? 'Is it one of these?' : "This food isn't in our model yet. Search for it instead."}</p>
     ${guesses.length ? html`<div class="chips">${guesses.map((g, i) => html`<button class="chip" data-guess="${i}">${g.f.name}</button>`)}</div>` : ''}
   </section>`);
-  $$('[data-guess]', out).forEach((b) => b.addEventListener('click', () => showFood(root, out, guesses[Number(b.dataset.guess)].f)));
+  $$('[data-guess]', out).forEach((b) => b.addEventListener('click', () => showFood(root, ctx, out, guesses[Number(b.dataset.guess)].f)));
 }
 
-function showFood(root, out, f) {
+function showFood(root, ctx, out, f) {
   const result = { name: f.name, kcal: f.kcal, protein: f.protein, portion: '1 standard serving' };
   let servings = 1;
   mount(out, html`
@@ -239,7 +240,7 @@ function showFood(root, out, f) {
   $('#r-add', out).addEventListener('click', () => {
     addMeal({ name: servings === 1 ? result.name : `${result.name} ×${servings}`, kcal: result.kcal * servings,
       protein: (result.protein || 0) * servings, source: 'Food photo' });
-    toast(`Logged ${result.name}`);
+    showLogged(ctx, { name: result.name, kcal: result.kcal * servings });
     renderLog(root);
     out.innerHTML = '';
   });
@@ -300,7 +301,7 @@ function renderMenu(root, ctx) {
       $$('[data-pick]', out).forEach((b) => b.addEventListener('click', () => {
         const pk = r.picks[Number(b.dataset.pick)];
         addMeal({ name: pk.dish, kcal: pk.est_kcal, protein: 0, source: 'Menu Scanner' });
-        toast(`Logged ${pk.dish}`);
+        showLogged(ctx, { name: pk.dish, kcal: pk.est_kcal });
       }));
     } catch (e) {
       $('#menu-zone .scan-line', root)?.remove();

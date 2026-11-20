@@ -2,10 +2,10 @@
 // - App shell (HTML/CSS/JS/icons): stale-while-revalidate, so updates arrive on the next launch.
 // - /api/*: always network, never cached (health data and AI answers stay fresh and private).
 // - Cross-origin requests (CDN, Teachable Machine) are left to the browser.
-const VERSION = 'bodywise-v8';
+const VERSION = 'bodywise-v10';
 const SHELL = [
-  '/', '/css/styles.css', '/css/v2.css', '/manifest.webmanifest',
-  '/js/main.js', '/js/ui.js', '/js/store.js', '/js/api.js', '/js/theme.js', '/js/avatar.js', '/js/avatar3d.js',
+  '/', '/css/styles.css', '/css/v2.css', '/css/flow.css', '/manifest.webmanifest',
+  '/js/main.js', '/js/ui.js', '/js/store.js', '/js/api.js', '/js/theme.js', '/js/avatar.js', '/js/avatar3d.js', '/js/logged.js',
   '/js/views/onboarding.js', '/js/views/home.js', '/js/views/plan.js', '/js/views/snap.js',
   '/js/views/progress.js', '/js/views/coach.js', '/js/views/profile.js', '/js/views/settings.js',
   '/img/logo.svg', '/img/icon-192.png', '/img/icon-512.png',

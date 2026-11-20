@@ -402,14 +402,14 @@ input[type="range"] { width: 100%; accent-color: var(--primary); height: 28px; }
 .chart { width: 100%; height: auto; overflow: visible; }
 .chart .grid-line { stroke: var(--line); stroke-width: 1; }
 .chart .axis-text { fill: var(--ink-3); font-size: 11px; font-family: var(--font-body); }
-.chart .weight-line { fill: none; stroke: var(--ink); stroke-width: 2.5; stroke-linejoin: round; }
+.chart .weight-line { fill: none; stroke: var(--primary); stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
 .chart .weight-area { fill: url(#areaGrad); }
 .chart .trend-line { stroke: var(--primary); stroke-width: 3; stroke-linecap: round; }
 .chart .proj-line { stroke: var(--primary); stroke-width: 3; stroke-dasharray: 2 8; stroke-linecap: round; }
-.chart .target-line { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 6 6; }
-.chart .target-text { fill: var(--accent); font-size: 11px; font-weight: 700; font-family: var(--font-body); }
-.chart .pt { fill: var(--surface); stroke: var(--ink); stroke-width: 2.5; }
-.chart .goal-flag { fill: var(--accent); }
+.chart .target-line { stroke: var(--gold); stroke-width: 1.5; stroke-dasharray: 6 6; }
+.chart .target-text { fill: var(--gold); font-size: 11px; font-weight: 700; font-family: var(--font-body); }
+.chart .pt { fill: var(--surface); stroke: var(--primary); stroke-width: 2.5; }
+.chart .goal-flag { fill: var(--primary); }
 .chart .draw { stroke-dasharray: 2000; stroke-dashoffset: 2000; animation: draw 1.6s var(--ease) forwards; }
 @keyframes draw { to { stroke-dashoffset: 0; } }
 
