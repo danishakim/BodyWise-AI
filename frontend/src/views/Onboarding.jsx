@@ -32,10 +32,8 @@ const BACKUP_KEYS = ['profile', 'prefs', 'metrics', 'plan', 'weights', 'meals', 
 const range = (a, b, step = 1) => { const out = []; for (let v = a; v <= b + 1e-9; v += step) out.push(Math.round(v * 10) / 10); return out; };
 
 const MARK = (
-  <svg viewBox="0 0 128 128" aria-hidden="true">
-    <path d="M64 108C42 94 35 77 39 61C43 48 53 42 64 39C75 42 85 48 89 61C93 77 86 94 64 108Z" fill="#EC4D86" />
-    <path d="M64 101V53M64 77L50 63M64 77L78 63" stroke="#fff" strokeWidth="5.5" strokeLinecap="round" />
-    <circle cx="64" cy="27" r="9" fill="#EC4D86" />
+  <svg viewBox="20 20 88 88" fill="none" aria-hidden="true">
+    <path d="M65.1 100.3C62.5 97.9 54.0 91.2 49.6 85.9C45.2 80.7 40.8 74.1 38.4 68.7C36.0 63.4 35.3 58.7 35.4 53.7C35.5 48.7 36.9 42.8 39.3 38.6C41.6 34.5 46.3 30.7 49.6 29.0C52.9 27.2 56.4 27.3 59.3 27.9C62.1 28.5 64.9 30.4 66.8 32.6C68.7 34.8 69.9 37.9 70.7 41.2C71.5 44.5 71.7 49.1 71.5 52.6C71.4 56.1 70.9 59.7 69.8 62.3C68.7 64.8 66.7 67.3 65.1 67.9C63.4 68.4 61.0 67.4 59.9 65.7C58.8 64.1 58.2 60.5 58.6 58.0C59.1 55.4 60.6 52.6 62.5 50.5C64.4 48.3 67.2 46.4 70.0 45.1C72.9 43.8 76.7 42.3 79.7 42.5C82.7 42.7 85.8 44.1 87.9 46.4C90.0 48.6 91.7 52.3 92.4 55.8C93.0 59.4 92.8 64.0 91.7 67.7C90.7 71.3 88.8 75.0 86.1 77.8C83.5 80.5 77.5 83.1 75.8 84.2" stroke="#EC4D86" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
 
