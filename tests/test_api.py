@@ -7,19 +7,20 @@ PROFILE = dict(name="Aina", sex="female", age=21, height_cm=158, weight_kg=62, a
 
 @pytest.fixture()
 def client(monkeypatch):
+    from fastapi.testclient import TestClient
+
     from app import create_app  # importing app loads .env, so remove the key afterwards
 
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)  # force demo mode: tests never call the paid API
     monkeypatch.delenv("TM_MODEL_URL", raising=False)
-    monkeypatch.delenv("FIREBASE_PROJECT_ID", raising=False)  # auth is covered in test_security.py
-    return create_app().test_client()
+    return TestClient(create_app())
 
 
 SAME_SITE = {"X-BodyWise": "1"}
 
 
 def test_status_demo_mode(client):
-    assert client.get("/api/status").get_json()["ai_enabled"] is False
+    assert client.get("/api/status").json()["ai_enabled"] is False
 
 
 def test_index_served_with_security_headers(client):
@@ -30,13 +31,13 @@ def test_index_served_with_security_headers(client):
 
 def test_assess_validates_input(client):
     r = client.post("/api/assess", json={**PROFILE, "age": 5})
-    assert r.status_code == 400 and "age" in r.get_json()["error"]
+    assert r.status_code == 400 and "age" in r.json()["error"]
 
 
 @pytest.mark.parametrize("puasa,slots", [(False, 4), (True, 3)])
 def test_demo_plan(client, puasa, slots):
     r = client.post("/api/plan", json={"profile": PROFILE, "prefs": {"puasa": puasa, "budget_rm": 30}})
-    data = r.get_json()
+    data = r.json()
     assert r.status_code == 200
     plan = data["plan"]
     assert plan["source"] == "demo" and len(plan["days"]) == 7
@@ -46,42 +47,41 @@ def test_demo_plan(client, puasa, slots):
 
 
 def test_vegetarian_plan_has_no_meat(client):
-    plan = client.post("/api/plan", json={"profile": PROFILE, "prefs": {"vegetarian": True}}).get_json()["plan"]
+    plan = client.post("/api/plan", json={"profile": PROFILE, "prefs": {"vegetarian": True}}).json()["plan"]
     names = " ".join(m["name"].lower() for d in plan["days"] for m in d["meals"])
     for meat in ("ayam", "chicken", "ikan", "daging", "udang", "satay"):
         assert meat not in names
 
 
 def test_smart_swap(client):
-    swaps = client.post("/api/swap", json={"slot": "Breakfast", "kcal": 400, "name": "Nasi lemak"}).get_json()["swaps"]
+    swaps = client.post("/api/swap", json={"slot": "Breakfast", "kcal": 400, "name": "Nasi lemak"}).json()["swaps"]
     assert swaps and all(s["kcal"] < 400 for s in swaps)
 
 
 def test_rebalance(client):
     r = client.post("/api/rebalance", json={"profile": PROFILE, "extra_kcal": 900, "days_before": 3, "days_after": 2})
-    assert r.status_code == 200 and r.get_json()["trim_per_day"] > 0
+    assert r.status_code == 200 and r.json()["trim_per_day"] > 0
 
 
 def test_coach_demo(client):
     r = client.post("/api/coach", json={"profile": PROFILE, "messages": [{"role": "user", "text": "Can I eat nasi lemak?"}]})
-    assert r.get_json()["source"] == "demo" and "kcal" in r.get_json()["reply"]
+    assert r.json()["source"] == "demo" and "kcal" in r.json()["reply"]
 
 
 def test_image_upload_rejects_non_images(client):
-    r = client.post("/api/label/scan", data={"image": (io.BytesIO(b"not an image"), "x.jpg")},
-                    content_type="multipart/form-data", headers=SAME_SITE)
+    r = client.post("/api/label/scan", files={"image": ("x.jpg", io.BytesIO(b"not an image"))}, headers=SAME_SITE)
     assert r.status_code == 400
 
 
 def test_food_photos_are_not_sent_to_the_server(client):
     # Food photos are recognised on-device by Teachable Machine; there is no server endpoint for them.
     jpeg = b"\xff\xd8\xff\xe0" + b"0" * 100
-    r = client.post("/api/food/recognize", data={"image": (io.BytesIO(jpeg), "x.jpg")}, content_type="multipart/form-data",
+    r = client.post("/api/food/recognize", files={"image": ("x.jpg", io.BytesIO(jpeg))},
                     headers=SAME_SITE)
     assert r.status_code in (404, 405)
 
 
 def test_predict_endpoint(client):
     weights = [{"date": f"2026-01-{d:02d}", "kg": 70 - d * 0.05} for d in range(1, 30, 7)]
-    r = client.post("/api/predict", json={"weights": weights, "target_kg": 65, "goal": "lose"}).get_json()
+    r = client.post("/api/predict", json={"weights": weights, "target_kg": 65, "goal": "lose"}).json()
     assert r["ok"] and r["eta_date"]

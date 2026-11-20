@@ -42,20 +42,21 @@ def test_label_values_are_bounded():
 
 @pytest.fixture()
 def client(monkeypatch):
+    from fastapi.testclient import TestClient
+
     from app import create_app
 
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    return create_app().test_client()
+    return TestClient(create_app())
 
 
 def test_label_endpoint_demo_mode(client):
     png = b"\x89PNG\r\n\x1a\n" + b"0" * 64
-    r = client.post("/api/label/scan", data={"image": (io.BytesIO(png), "l.png")},
-                    content_type="multipart/form-data", headers={"X-BodyWise": "1"})
-    assert r.status_code == 200 and r.get_json()["ok"] is False
+    r = client.post("/api/label/scan", files={"image": ("l.png", io.BytesIO(png))}, headers={"X-BodyWise": "1"})
+    assert r.status_code == 200 and r.json()["ok"] is False
 
 
 def test_label_endpoint_blocks_cross_site(client):
     png = b"\x89PNG\r\n\x1a\n" + b"0" * 64
-    r = client.post("/api/label/scan", data={"image": (io.BytesIO(png), "l.png")}, content_type="multipart/form-data")
+    r = client.post("/api/label/scan", files={"image": ("l.png", io.BytesIO(png))})
     assert r.status_code == 403

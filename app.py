@@ -1,21 +1,28 @@
-"""BodyWise AI: Flask backend.
+"""BodyWise AI: FastAPI backend.
 
-Run locally:  python app.py   →  http://127.0.0.1:5000
+Run locally:  python app.py              →  http://127.0.0.1:5000
+On your LAN:  set HOST=0.0.0.0 first     →  http://<your-laptop-ip>:5000
+API docs:     http://127.0.0.1:5000/api/docs
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
 import time
 from collections import defaultdict, deque
 from datetime import date
-from functools import wraps
+from pathlib import Path
 
+import uvicorn
 from dotenv import load_dotenv
-from flask import Flask, jsonify, request, send_from_directory
+from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
-from werkzeug.middleware.proxy_fix import ProxyFix
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from bodywise import ai
 from bodywise.foods import FOODS, smart_swaps
@@ -24,12 +31,37 @@ from bodywise.predict import PredictRequest, predict
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+log = logging.getLogger("bodywise")
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+FRONTEND_DIST = Path(__file__).resolve().parent / "frontend" / "dist"
+
+APP_CSP = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src https://fonts.gstatic.com; "
+    "img-src 'self' data: blob:; "
+    "connect-src 'self' https://teachablemachine.withgoogle.com https://storage.googleapis.com; "
+    "frame-src 'none'; "
+    "worker-src 'self'; manifest-src 'self'; "
+    "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+)
+# Swagger UI (only at /api/docs) loads its own script and styles from jsDelivr.
+DOCS_CSP = (
+    "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: https://fastapi.tiangolo.com; "
+    "frame-ancestors 'none'"
+)
 
 
 class UserError(ValueError):
     """An error whose message is safe to show to the user."""
+
+
+class ApiError(Exception):
+    def __init__(self, status: int, error: str, code: str | None = None):
+        self.status, self.error, self.code = status, error, code
 
 
 def sniff_image(data: bytes) -> str | None:
@@ -74,7 +106,7 @@ class CoachRequest(BaseModel):
     today: TodaySummary = TodaySummary()
 
 
-# --- Quotas: per-minute rate limit + per-day allowance, keyed by user -------
+# --- Quotas: per-minute rate limit + per-day allowance, keyed by client IP ---
 class Quota:
     """In-memory limiter. Accurate with ONE worker process (see render.yaml);
     move to Redis/Firestore counters when scaling out."""
@@ -104,177 +136,174 @@ class Quota:
             return None
 
 
-def create_app() -> Flask:
-    app = Flask(__name__, static_folder="static", static_url_path="")
-    app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
-    if os.getenv("TRUST_PROXY") == "1":
-        # Behind exactly one proxy (Render): trust its X-Forwarded-For/Proto for the real client IP and https.
-        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+def read_image(image: UploadFile | None) -> tuple[bytes, str]:
+    if image is None:
+        raise UserError("No image uploaded.")
+    data = image.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise ApiError(413, "Image is too large (max 5 MB).")
+    mime = sniff_image(data)
+    if not data or mime is None:
+        raise UserError("Please upload a JPEG, PNG or WebP image.")
+    return data, mime
+
+
+def create_app() -> FastAPI:
+    app = FastAPI(
+        title="BodyWise AI API",
+        version="2.0",
+        description="Personal AI weight coach for Malaysian students. Numbers come from formulas; words come from AI.",
+        docs_url="/api/docs", redoc_url=None, openapi_url="/api/openapi.json",
+    )
     quota = Quota()
     per_min = int(os.getenv("AI_RATE_LIMIT_PER_MIN", "10"))
     per_day = int(os.getenv("AI_DAILY_PER_IP", "50"))
 
-    def ai_quota(fn):
-        @wraps(fn)
-        def wrapper(*args, **kwargs):
-            # Real client IP: ProxyFix (TRUST_PROXY=1) makes remote_addr correct behind Render.
-            msg = quota.allow(f"ip:{request.remote_addr or 'anon'}", per_min, per_day)
-            if msg:
-                return jsonify(error=msg, code="quota"), 429
-            return fn(*args, **kwargs)
-        return wrapper
+    # --- Dependencies -----------------------------------------------------
+    def ai_quota(request: Request) -> None:
+        # Real client IP: ProxyHeadersMiddleware (TRUST_PROXY=1) makes request.client correct behind Render.
+        ip = request.client.host if request.client else "anon"
+        msg = quota.allow(f"ip:{ip}", per_min, per_day)
+        if msg:
+            raise ApiError(429, msg, "quota")
 
-    def same_site_only(fn):
+    def same_site_only(request: Request) -> None:
         """Uploads are 'simple' requests a foreign site could forge; require our custom header."""
-        @wraps(fn)
-        def wrapper(*args, **kwargs):
-            if request.headers.get("X-BodyWise") != "1":
-                return jsonify(error="Request blocked."), 403
-            return fn(*args, **kwargs)
-        return wrapper
+        if request.headers.get("x-bodywise") != "1":
+            raise ApiError(403, "Request blocked.")
 
-    def body(model: type[BaseModel]):
-        return model.model_validate(request.get_json(silent=True) or {})
+    upload_guard = [Depends(same_site_only), Depends(ai_quota)]
 
-    def read_image() -> tuple[bytes, str]:
-        file = request.files.get("image")
-        if file is None:
-            raise UserError("No image uploaded.")
-        data = file.read()
-        mime = sniff_image(data)
-        if not data or mime is None:
-            raise UserError("Please upload a JPEG, PNG or WebP image.")
-        return data, mime
+    # --- Error handling: always JSON {"error": ...}, never stack traces -----
+    def first_error(errors) -> JSONResponse:
+        first = errors[0]
+        field = ".".join(str(x) for x in first["loc"] if x != "body") or "request"
+        return JSONResponse({"error": f"Invalid {field}: {first['msg']}"}, status_code=400)
 
-    # --- Error handling: always JSON, never stack traces ------------------
-    @app.errorhandler(ValidationError)
-    def on_validation(err: ValidationError):
-        first = err.errors()[0]
-        field = ".".join(str(x) for x in first["loc"])
-        return jsonify(error=f"Invalid {field}: {first['msg']}"), 400
+    @app.exception_handler(RequestValidationError)
+    async def on_request_validation(_req, err: RequestValidationError):
+        return first_error(err.errors())
 
-    @app.errorhandler(UserError)
-    def on_user_error(err: UserError):
-        return jsonify(error=str(err)), 400
+    @app.exception_handler(ValidationError)
+    async def on_validation(_req, err: ValidationError):
+        return first_error(err.errors())
 
-    @app.errorhandler(ValueError)
-    def on_value(_err: ValueError):
-        return jsonify(error="Invalid request."), 400
+    @app.exception_handler(UserError)
+    async def on_user_error(_req, err: UserError):
+        return JSONResponse({"error": str(err)}, status_code=400)
 
-    @app.errorhandler(413)
-    def on_too_large(_):
-        return jsonify(error="Image is too large (max 5 MB)."), 413
+    @app.exception_handler(ApiError)
+    async def on_api_error(_req, err: ApiError):
+        body = {"error": err.error, **({"code": err.code} if err.code else {})}
+        return JSONResponse(body, status_code=err.status)
 
-    @app.errorhandler(500)
-    def on_500(_):
-        return jsonify(error="Something went wrong on our side."), 500
+    @app.exception_handler(Exception)
+    async def on_unexpected(_req, err: Exception):
+        log.exception("Unhandled error: %s", err)
+        return JSONResponse({"error": "Something went wrong on our side."}, status_code=500)
 
-    @app.after_request
-    def security_headers(resp):
-        resp.headers["X-Content-Type-Options"] = "nosniff"
-        resp.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        resp.headers["X-Frame-Options"] = "DENY"
-        resp.headers["Permissions-Policy"] = "camera=(self), geolocation=(), microphone=()"
-        resp.headers["Cross-Origin-Opener-Policy"] = "same-origin"
-        resp.headers["Cross-Origin-Resource-Policy"] = "same-origin"
-        if request.is_secure:
-            resp.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        resp.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "script-src 'self' https://cdn.jsdelivr.net; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "font-src https://fonts.gstatic.com; "
-            "img-src 'self' data: blob:; "
-            "connect-src 'self' https://teachablemachine.withgoogle.com https://storage.googleapis.com; "
-            "frame-src 'none'; "
-            "worker-src 'self'; manifest-src 'self'; "
-            "frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
-        )
-        if request.path == "/sw.js":
-            resp.headers["Cache-Control"] = "no-cache"
+    # --- Security headers on every response --------------------------------
+    @app.middleware("http")
+    async def security_headers(request: Request, call_next):
+        resp = await call_next(request)
+        path = request.url.path
+        h = resp.headers
+        h["X-Content-Type-Options"] = "nosniff"
+        h["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        h["X-Frame-Options"] = "DENY"
+        h["Permissions-Policy"] = "camera=(self), geolocation=(), microphone=()"
+        h["Cross-Origin-Opener-Policy"] = "same-origin"
+        h["Cross-Origin-Resource-Policy"] = "same-origin"
+        if request.url.scheme == "https":
+            h["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        h["Content-Security-Policy"] = DOCS_CSP if path.startswith("/api/docs") else APP_CSP
+        if path.startswith("/assets/"):
+            h["Cache-Control"] = "public, max-age=31536000, immutable"   # content-hashed by Vite
+        elif path in ("/", "/sw.js") or path.endswith(".html"):
+            h["Cache-Control"] = "no-cache"
         return resp
 
-    # --- Pages ------------------------------------------------------------
-    @app.get("/")
-    def index():
-        return send_from_directory(app.static_folder, "index.html")
-
     # --- API: public (cheap, pure computation) ------------------------------
-    @app.get("/api/status")
+    @app.get("/api/status", tags=["app"])
     def status():
-        return jsonify(
-            ai_enabled=ai.is_enabled(),
-            tm_model_url=os.getenv("TM_MODEL_URL", "").strip() or None,
-        )
+        return {"ai_enabled": ai.is_enabled(), "tm_model_url": os.getenv("TM_MODEL_URL", "").strip() or None}
 
-    @app.get("/api/foods")
+    @app.get("/api/foods", tags=["food"])
     def foods():
-        return jsonify(foods=FOODS)
+        return {"foods": FOODS}
 
-    @app.post("/api/assess")
-    def api_assess():
-        return jsonify(assess(body(Profile)))
+    @app.post("/api/assess", tags=["health"])
+    def api_assess(profile: Profile):
+        """BMI, BMR, TDEE, calorie target and macros, calculated by formula with safety guardrails."""
+        return assess(profile)
 
-    @app.post("/api/swap")
-    def api_swap():
-        req = body(SwapRequest)
-        return jsonify(swaps=smart_swaps(req.slot, req.kcal, req.vegetarian, exclude_name=req.name))
+    @app.post("/api/swap", tags=["food"])
+    def api_swap(req: SwapRequest):
+        return {"swaps": smart_swaps(req.slot, req.kcal, req.vegetarian, exclude_name=req.name)}
 
-    @app.post("/api/predict")
-    def api_predict():
-        return jsonify(predict(body(PredictRequest)))
+    @app.post("/api/predict", tags=["health"])
+    def api_predict(req: PredictRequest):
+        """Linear-regression forecast of the goal date, plus plateau detection."""
+        return predict(req)
 
-    @app.post("/api/rebalance")
-    def api_rebalance():
-        req = body(RebalanceRequest)
+    @app.post("/api/rebalance", tags=["health"])
+    def api_rebalance(req: RebalanceRequest):
         metrics = assess(req.profile)
-        result = rebalance_for_event(
-            metrics["daily_kcal"], req.profile.sex, req.extra_kcal, req.days_before, req.days_after
-        )
-        return jsonify(base_kcal=metrics["daily_kcal"], **result)
+        result = rebalance_for_event(metrics["daily_kcal"], req.profile.sex, req.extra_kcal, req.days_before, req.days_after)
+        return {"base_kcal": metrics["daily_kcal"], **result}
 
-    # --- API: AI (costs money) → per-IP quotas + global daily cap --------------
-    @app.post("/api/plan")
-    @ai_quota
-    def api_plan():
-        req = body(PlanRequest)
+    # --- API: AI (costs money) → per-IP quotas + global daily cap -----------
+    # Plain `def` endpoints run in FastAPI's thread pool, so slow AI calls don't block other users.
+    @app.post("/api/plan", tags=["ai"], dependencies=[Depends(ai_quota)])
+    def api_plan(req: PlanRequest):
+        """7-day Malaysian meal plan written by Gemini around the formula-based calorie target."""
         metrics = assess(req.profile)
-        plan = ai.generate_plan(req.profile.model_dump(), metrics, req.prefs)
-        return jsonify(metrics=metrics, plan=plan)
+        return {"metrics": metrics, "plan": ai.generate_plan(req.profile.model_dump(), metrics, req.prefs)}
 
-    @app.post("/api/menu/scan")
-    @same_site_only
-    @ai_quota
-    def api_menu():
-        data, mime = read_image()
+    @app.post("/api/menu/scan", tags=["ai"], dependencies=upload_guard)
+    def api_menu(image: UploadFile | None = File(None), remaining_kcal: str = Form("600"),
+                 goal: str = Form("maintain"), prefs: str = Form("{}")):
+        data, mime = read_image(image)
         try:
-            remaining = max(0, min(int(request.form.get("remaining_kcal", "600")), 5000))
+            remaining = max(0, min(int(remaining_kcal), 5000))
         except ValueError:
             raise UserError("Invalid remaining calories.") from None
-        goal = request.form.get("goal", "maintain")
         if goal not in ("lose", "maintain", "gain"):
             goal = "maintain"
-        prefs = ai.Preferences.model_validate_json(request.form.get("prefs", "{}"))
-        return jsonify(ai.scan_menu(data, mime, remaining, prefs, goal))
+        try:
+            parsed = ai.Preferences.model_validate(json.loads(prefs))
+        except json.JSONDecodeError:
+            raise UserError("Invalid preferences.") from None
+        return ai.scan_menu(data, mime, remaining, parsed, goal)
 
-    @app.post("/api/label/scan")
-    @same_site_only
-    @ai_quota
-    def api_label():
-        data, mime = read_image()
-        return jsonify(ai.read_label(data, mime))
+    @app.post("/api/label/scan", tags=["ai"], dependencies=upload_guard)
+    def api_label(image: UploadFile | None = File(None)):
+        """Read a packaged food's nutrition label (per serving) and check the arithmetic."""
+        data, mime = read_image(image)
+        return ai.read_label(data, mime)
 
-    @app.post("/api/coach")
-    @ai_quota
-    def api_coach():
-        req = body(CoachRequest)
+    @app.post("/api/coach", tags=["ai"], dependencies=[Depends(ai_quota)])
+    def api_coach(req: CoachRequest):
         metrics = assess(req.profile)
-        return jsonify(ai.coach_reply(req.profile.model_dump(), metrics, req.today.model_dump(), req.messages))
+        return ai.coach_reply(req.profile.model_dump(), metrics, req.today.model_dump(), req.messages)
 
+    # --- Frontend: the React app built by Vite into frontend/dist ------------
+    @app.api_route("/", methods=["GET", "HEAD"], include_in_schema=False)
+    def index():
+        page = FRONTEND_DIST / "index.html"
+        if page.exists():
+            return FileResponse(page)
+        return HTMLResponse("<h1>BodyWise</h1><p>Frontend not built. Run <code>npm run build</code> in <code>frontend/</code>.</p>", status_code=503)
+
+    app.mount("/", StaticFiles(directory=FRONTEND_DIST, check_dir=False), name="frontend")
+
+    if os.getenv("TRUST_PROXY") == "1":
+        # Behind exactly one reverse proxy (Render): trust X-Forwarded-For/Proto for the real client IP and https.
+        app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
     return app
 
 
 app = create_app()
 
 if __name__ == "__main__":
-    app.run(debug=os.getenv("FLASK_DEBUG") == "1", port=int(os.getenv("PORT", "5000")))
+    uvicorn.run(app, host=os.getenv("HOST", "127.0.0.1"), port=int(os.getenv("PORT", "5000")))

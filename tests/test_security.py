@@ -10,12 +10,14 @@ PLAN = {"profile": PROFILE, "prefs": {"budget_rm": 30}}
 
 
 def make_client(monkeypatch, **env):
+    from fastapi.testclient import TestClient
+
     from app import create_app
 
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)   # demo mode: never call the paid API in tests
     for k, v in env.items():
         monkeypatch.setenv(k, str(v))
-    return create_app().test_client()
+    return TestClient(create_app())
 
 
 def test_per_minute_quota(monkeypatch):
@@ -46,7 +48,7 @@ def test_cheap_routes_have_no_quota(monkeypatch):
 def test_uploads_need_same_site_header(monkeypatch):
     c = make_client(monkeypatch)
     jpeg = b"\xff\xd8\xff\xe0" + b"0" * 100
-    r = c.post("/api/label/scan", data={"image": (io.BytesIO(jpeg), "x.jpg")}, content_type="multipart/form-data")
+    r = c.post("/api/label/scan", files={"image": ("x.jpg", io.BytesIO(jpeg))})
     assert r.status_code == 403
 
 
@@ -54,17 +56,16 @@ def test_security_headers(monkeypatch):
     c = make_client(monkeypatch)
     h = c.get("/").headers
     csp = h["Content-Security-Policy"]
-    assert "frame-ancestors 'none'" in csp and "script-src 'self' https://cdn.jsdelivr.net;" in csp
+    assert "frame-ancestors 'none'" in csp and "script-src 'self';" in csp
     assert h["Cross-Origin-Opener-Policy"] == "same-origin"
     assert "Strict-Transport-Security" not in h                          # only sent over https
-    assert c.get("/", base_url="https://localhost").headers["Strict-Transport-Security"].startswith("max-age=")
+    assert c.get("https://testserver/").headers["Strict-Transport-Security"].startswith("max-age=")
 
 
 def test_internal_errors_are_not_leaked(monkeypatch):
     c = make_client(monkeypatch)
-    r = c.post("/api/menu/scan", data={"image": (io.BytesIO(b"\xff\xd8\xff" + b"0" * 50), "m.jpg"), "remaining_kcal": "abc"},
-               content_type="multipart/form-data", headers={"X-BodyWise": "1"})
-    assert r.status_code == 400 and r.get_json()["error"] == "Invalid remaining calories."
+    r = c.post("/api/menu/scan", files={"image": ("m.jpg", io.BytesIO(b"\xff\xd8\xff" + b"0" * 50))}, data={"remaining_kcal": "abc"}, headers={"X-BodyWise": "1"})
+    assert r.status_code == 400 and r.json()["error"] == "Invalid remaining calories."
 
 
 def test_image_sniffing_is_strict():

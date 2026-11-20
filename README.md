@@ -50,14 +50,16 @@ Home · Plan · Snap (Food / Label / Menu) · Progress · Profile · Settings ·
 
 ### App experience
 - **Installable (PWA):** on a phone, open the link and choose *Add to Home Screen*. It opens full-screen with the pink BodyWise icon, and the app's screens load offline.
-- **Light and dark themes** (Settings → Appearance).
+- **Light mode by default**, with an optional dark theme (Settings → Appearance).
+- **Every launch opens with the splash and welcome screens.** Returning users tap *Continue* to pick up where they left off.
 - **No account needed:** data stays in your browser on your device. Settings lets you export it or delete it.
 
 ---
 
 ## Run it locally
 
-Requirements: Python 3.12+ and Google Chrome or Edge.
+Requirements: Python 3.12+ and Google Chrome or Edge. Node.js 18+ only if you change the frontend
+(the built app in `frontend/dist` is committed).
 
 ```bash
 python -m venv .venv
@@ -68,7 +70,17 @@ copy .env.example .env                 # macOS/Linux: cp .env.example .env
 python app.py
 ```
 
-Open **http://127.0.0.1:5000**. Don't use VS Code "Live Server": it can't run the Python backend.
+Open **http://127.0.0.1:5000**. Interactive API docs (Swagger) are at **http://127.0.0.1:5000/api/docs**.
+Don't use VS Code "Live Server": it can't run the Python backend.
+
+**Frontend development:**
+
+```bash
+cd frontend
+npm install
+npm run dev      # http://localhost:5173 with hot reload; /api is proxied to the FastAPI server on :5000
+npm run build    # writes frontend/dist, which FastAPI serves
+```
 
 **Demo mode:** without a Gemini key the app still works. Meal plans come from the built-in Malaysian food list and
 the coach gives rule-based replies, so a presentation never breaks.
@@ -107,9 +119,9 @@ The free tier sleeps after 15 minutes without visitors; open the link a minute b
 ## How it works
 
 ```
-Phone / browser (HTML, CSS, JavaScript modules, Three.js, service worker)
+Phone / browser (React + Vite, Three.js, TensorFlow.js / Teachable Machine, service worker)
    │  JSON + photo uploads
-Flask API (app.py) ── input validation, rate limits, daily AI cap, security headers
+FastAPI (app.py) ──── Pydantic validation, rate limits, daily AI cap, security headers
    ├─ bodywise/health.py   formulas + safety guardrails (no AI)
    ├─ bodywise/ai.py       Gemini: meal plan, label, menu, coach (+ demo fallbacks)
    ├─ bodywise/predict.py  scikit-learn regression + plateau detection
@@ -117,14 +129,14 @@ Flask API (app.py) ── input validation, rate limits, daily AI cap, security 
 ```
 
 ```
-app.py                  Flask app: routes, quotas, security headers
+app.py                  FastAPI app: routes, quotas, security headers; serves frontend/dist
 bodywise/               Python logic (health, ai, predict, foods)
-static/index.html       single-page app shell
-static/css/             styles.css (base + colour tokens), v2.css (pink design components)
-static/js/              main.js (router), api.js, store.js, ui.js, avatar*.js (3D body)
-static/js/views/        one file per screen
-static/sw.js            service worker (offline + install)
-static/manifest.webmanifest, static/img/   app name and icons
+frontend/src/App.jsx    app shell: hash router, navigation, toasts
+frontend/src/views/     one React component per screen (Onboarding, Home, Plan, Snap, Progress, Coach, Profile, Settings)
+frontend/src/lib/       api.js, store.js (localStorage state), avatar3d.js (3D body), format.js, icons.jsx
+frontend/src/styles/    styles.css (base + colour tokens), v2.css, flow.css (pink design)
+frontend/public/        sw.js (offline + install), manifest.webmanifest, img/ icons
+frontend/dist/          production build (committed, served by FastAPI)
 tests/                  pytest suite
 firebase/               Firestore schema design (for the report; not used by the app)
 render.yaml             Render deployment
