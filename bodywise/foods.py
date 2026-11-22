@@ -57,6 +57,7 @@ FOODS: list[dict] = [
     {"id": "latte", "name": "Café latte", "kcal": 190, "protein": 10, "rm": 10.0, "slots": ["drink"], "veg": True},
     {"id": "kopi_susu", "name": "Kopi susu / kopi tarik", "kcal": 150, "protein": 3, "rm": 2.0, "slots": ["drink"], "veg": True},
     {"id": "teh_ais", "name": "Teh ais", "kcal": 150, "protein": 3, "rm": 2.2, "slots": ["drink"], "veg": True},
+    {"id": "plain_water", "name": "Plain water (air kosong)", "kcal": 0, "protein": 0, "rm": 0.5, "slots": ["drink"], "veg": True},
     {"id": "isotonic_drink", "name": "100PLUS / isotonic drink (500 ml)", "kcal": 120, "protein": 0, "rm": 2.8, "slots": ["drink"], "veg": True},
     {"id": "soft_drink", "name": "Soft drink (1 can)", "kcal": 140, "protein": 0, "rm": 2.5, "slots": ["drink"], "veg": True},
     {"id": "nasi_lemak_ayam", "name": "Nasi lemak ayam goreng", "kcal": 750, "protein": 32, "rm": 8.0, "slots": ["other"], "veg": False},
@@ -88,7 +89,7 @@ LOOKALIKES: dict[str, list[str]] = {
     "mee_goreng": ["maggi_goreng", "char_kuey_teow", "bihun_goreng"],
     "pisang_goreng": ["keledek_goreng", "cucur_udang", "karipap"],
     "burger": ["cheeseburger", "chicken_burger", "double_burger"],
-    "mineral_water": ["isotonic_drink", "soft_drink", "teh_o_kosong"],
+    "mineral_water": ["plain_water", "isotonic_drink", "soft_drink"],
 }
 
 FOOD_BY_ID = {f["id"]: f for f in FOODS}
