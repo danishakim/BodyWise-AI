@@ -4,7 +4,7 @@
 SDT2143 Artificial Intelligence in Modern Computing · Mini AI Hackathon · Theme: *AI for Problem Solving*
 
 Enter your height and weight to get a 3D virtual body, a calorie target calculated by formula, a 7-day Malaysian
-meal plan written by AI, food-photo and nutrition-label logging, an AI coach, and a machine-learning forecast of
+meal plan written by AI, food-photo logging, an AI coach, and a machine-learning forecast of
 when you'll reach your goal. It runs in the browser and installs on a phone like an app.
 
 - **Design (Figma):** https://www.figma.com/design/yFMT2RV65E5SPAXmv7bxuu
@@ -25,9 +25,7 @@ people give up within weeks.
 | Feature | AI / technique |
 |---|---|
 | 7-day meal plan for losing, maintaining or gaining weight, with a ringgit budget, halal and vegetarian options and **Puasa (Ramadan) mode** | **Google Gemini**, structured JSON output |
-| **Food photo**: identifies the dish, calories come from our Malaysian food list | **Teachable Machine** image model, runs entirely on the device (photos never leave the phone) |
-| **Nutrition label scanner** for packaged food | **Gemini Vision** reads the label into a fixed format, then an arithmetic check (kcal ≈ 4P + 4C + 9F, per-100 g vs per-serving, kJ/kcal mix-ups) |
-| **Menu scanner**: ranks dishes on a hawker menu board for the calories you have left | **Gemini Vision** |
+| **Food photo**: recognises 9 hawker favourites, then you confirm the exact food from its lookalikes (teh tarik vs latte); calories come from our Malaysian food list | **Teachable Machine** image model, runs entirely on the device (photos never leave the phone) |
 | **AI coach** chat that knows your targets and today's log | **Gemini** |
 | **Progress forecast**: goal date, kg/week, plateau detection | **scikit-learn** linear regression |
 | **3D virtual body** that changes shape with BMI, with your goal shown as a glowing outline | **Three.js**, body shape generated from BMI |
@@ -35,7 +33,7 @@ people give up within weeks.
 
 ### Features mainstream calorie apps don't have
 1. **Future You:** drag a slider to watch your 3D body change week by week toward your goal.
-2. **Menu Scanner:** choose *before* you order, not just log after you eat.
+2. **Lookalike picker:** after a food photo the app asks *"Which one are you having?"* and offers foods that look the same in a photo (teh tarik, latte, kopi susu, Milo ais), then remembers your usual.
 3. **Puasa mode:** Sahur, Iftar and Moreh meal plans.
 4. **Kenduri Rebalancer:** spreads a feast's extra calories safely over the days around it.
 5. **Smart Swap:** lighter local alternatives (roti canai → thosai), ranked to keep protein high.
@@ -44,7 +42,7 @@ people give up within weeks.
 8. **Next best bite:** Home suggests a protein-rich local food that fits the calories you have left.
 
 ### Screens
-Home · Plan · Snap (Food / Label / Menu) · Progress · Profile · Settings · AI Coach, plus a guided onboarding
+Home · Plan · Snap · Progress · Profile · Settings · AI Coach, plus a guided onboarding
 (splash → welcome → goal → about you → height & weight wheels → goal weight with the 3D body → activity → food →
 "building your plan" → plan ready) and a "meal logged" success screen. All screens follow the Figma design.
 
@@ -85,7 +83,7 @@ npm run build    # writes frontend/dist, which FastAPI serves
 **Demo mode:** without a Gemini key the app still works. Meal plans come from the built-in Malaysian food list and
 the coach gives rule-based replies, so a presentation never breaks.
 
-**Tests:** `python -m pytest -q` runs 47 tests in demo mode, so they never call the paid API or Supabase.
+**Tests:** `python -m pytest -q` runs 43 tests in demo mode, so they never call the paid API or Supabase.
 
 ### Settings (`.env`)
 
@@ -105,9 +103,12 @@ the coach gives rule-based replies, so a presentation never breaks.
 
 ### Teachable Machine food model (needed for food photos)
 1. Go to https://teachablemachine.withgoogle.com → **Image Project**.
-2. Create classes named exactly like the food ids in [bodywise/foods.py](bodywise/foods.py), e.g. `nasi_lemak`, `roti_canai`, `teh_tarik`. Use 50+ photos each.
-3. Train → **Export Model** → **Upload (shareable link)** → paste the link into `TM_MODEL_URL`.
-4. The app classifies on the device. If the model is less than 60% sure, it shows its top guesses for the user to pick, or the user searches the food list.
+2. Create classes named exactly like the food ids in [bodywise/foods.py](bodywise/foods.py). The current model has 9:
+   `nasi_lemak`, `roti_canai`, `teh_tarik`, `satay`, `nasi_ayam`, `mee_goreng`, `pisang_goreng`, `burger`, `mineral_water`. Use 50+ photos each.
+3. Train → **Export Model** → **Upload (shareable link)** → paste the link into `TM_MODEL_URL`, and list the classes in `TM_CLASSES` in `foods.py`.
+4. The app classifies on the device, then asks *"Which one are you having?"*: the model's answer plus the lookalikes listed in
+   `LOOKALIKES` (e.g. `teh_tarik` → latte, kopi susu, teh ais, Milo ais). If the model is less than 60% sure, it shows its top guesses
+   with nothing preselected. *Something else* jumps to the food search.
 
 ## Cloud data (Supabase)
 
@@ -158,12 +159,12 @@ The backend only accepts cross-origin calls from the app's own origin (`https://
 ```
 Phone / browser (React + Vite, Three.js, TensorFlow.js / Teachable Machine, service worker)
    │  your data (anonymous or Google login) ──────► Supabase: Postgres + Auth, Row-Level Security
-   │  JSON + photo uploads
+   │  JSON only (food photos stay on the device)
 FastAPI on Vercel (app.py) ── validation, AI rate limits (kept in Supabase), daily AI cap, security headers
    ├─ bodywise/health.py   formulas + safety guardrails (no AI)
-   ├─ bodywise/ai.py       Gemini: meal plan, label, menu, coach (+ demo fallbacks)
+   ├─ bodywise/ai.py       Gemini: meal plan, coach (+ demo fallbacks)
    ├─ bodywise/predict.py  scikit-learn regression + plateau detection
-   └─ bodywise/foods.py    Malaysian food list + Smart Swap
+   └─ bodywise/foods.py    Malaysian food list, photo classes + lookalikes, Smart Swap
 ```
 
 ```
@@ -185,7 +186,7 @@ frontend/android/       Capacitor Android project (APK); build with frontend/bui
 ## Responsible AI
 
 - **Numbers come from formulas, words come from AI.** The AI never sets calorie targets. The server recalculates every day's total from the AI's meals and flags days more than 15% off target.
-- **AI output isn't trusted blindly.** Every number the AI returns has hard limits, and scanned labels must pass an arithmetic check before logging.
+- **AI output isn't trusted blindly.** Every number the AI returns has hard limits.
 - **Structured outputs:** Gemini must reply in a fixed JSON format, so there's no fragile text parsing.
 - **Guardrails:**
   - no weight-loss plans for underweight users;
@@ -201,7 +202,6 @@ frontend/android/       Capacitor Android project (APK); build with frontend/bui
 - **API key on the server only.**
 - **Cost protection:** per-visitor rate limits and daily allowances, plus a global daily AI cap that falls back to demo mode, so there's no surprise bill.
 - **Safe page content:** all text is HTML-escaped, and a strict Content-Security-Policy is set, along with HSTS and COOP/CORP headers.
-- **Upload checks:** images are identified by their file contents (not the filename or extension) and limited to 5 MB. Cross-site upload posts are blocked.
 - **No internal errors leaked** to users.
 
 ## Credits

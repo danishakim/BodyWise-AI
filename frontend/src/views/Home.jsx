@@ -10,6 +10,7 @@ import Body3D from '../components/Body3D.jsx';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const SLOT_EMOJI = { Breakfast: '🍳', Sahur: '🌙', Lunch: '🍛', Iftar: '🌅', Snack: '🍌', Moreh: '🍵', Dinner: '🐟' };
+const PLAN_SLOTS = ['breakfast', 'lunch', 'dinner', 'snack'];
 let foodsCache = null;
 
 function Ring({ pct, color }) {
@@ -77,7 +78,8 @@ export default function Home() {
   // Next best bite: a protein-rich local food that fits the calories left.
   let pick = null;
   if (foods && left >= 80) {
-    const fits = foods.filter((f) => f.kcal <= left && !f.slots.includes('drink') && !f.slots.includes('fastfood') && (f.veg || !s.prefs.vegetarian));
+    // Only meal-plan foods: drinks, fast food and photo lookalikes ("other") are never suggested.
+    const fits = foods.filter((f) => f.kcal <= left && f.slots.some((x) => PLAN_SLOTS.includes(x)) && (f.veg || !s.prefs.vegetarian));
     pick = [...fits].sort((a, b) => b.protein / b.kcal - a.protein / a.kcal)[proteinLeft > 15 ? 0 : 2] || fits[0] || null;
   }
 

@@ -5,7 +5,7 @@ prototype. Verify against the Malaysian Food Composition Database (MyFCD)
 before any real-world use.
 
 `id` values double as Teachable Machine class names: train your TM model with
-classes named exactly like these ids (e.g. "nasi_lemak").
+classes named exactly like these ids (e.g. "nasi_lemak"), then list them in TM_CLASSES.
 """
 from __future__ import annotations
 
@@ -50,7 +50,46 @@ FOODS: list[dict] = [
     {"id": "milo_ais", "name": "Milo ais", "kcal": 200, "protein": 5, "rm": 3.0, "slots": ["drink"], "veg": True},
     {"id": "teh_o_kosong", "name": "Teh O kosong", "kcal": 5, "protein": 0, "rm": 1.5, "slots": ["drink"], "veg": True},
     {"id": "kurma", "name": "Kurma / dates (3 pcs)", "kcal": 70, "protein": 1, "rm": 1.0, "slots": ["snack"], "veg": True},
+    {"id": "mineral_water", "name": "Mineral water", "kcal": 0, "protein": 0, "rm": 1.5, "slots": ["drink"], "veg": True},
+
+    # Lookalikes: foods the photo model can't tell apart from one of its classes (a latte looks like teh tarik).
+    # Slots "other" / "drink" / "fastfood" keep them out of meal plans; they're offered when logging a photo.
+    {"id": "latte", "name": "Café latte", "kcal": 190, "protein": 10, "rm": 10.0, "slots": ["drink"], "veg": True},
+    {"id": "kopi_susu", "name": "Kopi susu / kopi tarik", "kcal": 150, "protein": 3, "rm": 2.0, "slots": ["drink"], "veg": True},
+    {"id": "teh_ais", "name": "Teh ais", "kcal": 150, "protein": 3, "rm": 2.2, "slots": ["drink"], "veg": True},
+    {"id": "isotonic_drink", "name": "100PLUS / isotonic drink (500 ml)", "kcal": 120, "protein": 0, "rm": 2.8, "slots": ["drink"], "veg": True},
+    {"id": "soft_drink", "name": "Soft drink (1 can)", "kcal": 140, "protein": 0, "rm": 2.5, "slots": ["drink"], "veg": True},
+    {"id": "nasi_lemak_ayam", "name": "Nasi lemak ayam goreng", "kcal": 750, "protein": 32, "rm": 8.0, "slots": ["other"], "veg": False},
+    {"id": "nasi_kandar", "name": "Nasi kandar (rice, chicken, curry)", "kcal": 750, "protein": 30, "rm": 10.0, "slots": ["other"], "veg": False},
+    {"id": "chapati", "name": "Chapati with dhal", "kcal": 300, "protein": 10, "rm": 2.5, "slots": ["other"], "veg": True},
+    {"id": "satay_daging", "name": "Satay daging (6 sticks + kuah)", "kcal": 400, "protein": 28, "rm": 8.0, "slots": ["other"], "veg": False},
+    {"id": "maggi_goreng", "name": "Maggi goreng", "kcal": 550, "protein": 14, "rm": 6.0, "slots": ["other"], "veg": False},
+    {"id": "char_kuey_teow", "name": "Char kuey teow", "kcal": 740, "protein": 23, "rm": 8.0, "slots": ["other"], "veg": False},
+    {"id": "bihun_goreng", "name": "Bihun goreng", "kcal": 450, "protein": 12, "rm": 6.0, "slots": ["other"], "veg": False},
+    {"id": "keledek_goreng", "name": "Keledek goreng (2 pcs)", "kcal": 230, "protein": 2, "rm": 2.0, "slots": ["other"], "veg": True},
+    {"id": "karipap", "name": "Karipap / curry puff (2 pcs)", "kcal": 260, "protein": 5, "rm": 2.0, "slots": ["other"], "veg": False},
+    {"id": "cheeseburger", "name": "Cheeseburger (fast food)", "kcal": 300, "protein": 15, "rm": 6.0, "slots": ["fastfood"], "veg": False},
+    {"id": "chicken_burger", "name": "Chicken burger (fast food)", "kcal": 420, "protein": 16, "rm": 8.0, "slots": ["fastfood"], "veg": False},
+    {"id": "double_burger", "name": "Double cheeseburger", "kcal": 650, "protein": 35, "rm": 10.0, "slots": ["fastfood"], "veg": False},
 ]
+
+# Classes in the Teachable Machine model (TM_MODEL_URL), in training order. Each must be a FOODS id.
+TM_CLASSES = ["nasi_lemak", "roti_canai", "teh_tarik", "satay", "nasi_ayam",
+              "mee_goreng", "pisang_goreng", "burger", "mineral_water"]
+
+# What each class is commonly confused with in a photo. After a photo the app asks
+# "Which one are you having?" and offers these next to the model's answer.
+LOOKALIKES: dict[str, list[str]] = {
+    "nasi_lemak": ["nasi_lemak_ayam", "nasi_campur", "nasi_goreng"],
+    "roti_canai": ["roti_telur", "chapati", "thosai"],
+    "teh_tarik": ["latte", "kopi_susu", "teh_ais", "milo_ais"],
+    "satay": ["satay_daging"],
+    "nasi_ayam": ["nasi_campur", "nasi_kandar", "ayam_masak_merah"],
+    "mee_goreng": ["maggi_goreng", "char_kuey_teow", "bihun_goreng"],
+    "pisang_goreng": ["keledek_goreng", "cucur_udang", "karipap"],
+    "burger": ["cheeseburger", "chicken_burger", "double_burger"],
+    "mineral_water": ["isotonic_drink", "soft_drink", "teh_o_kosong"],
+}
 
 FOOD_BY_ID = {f["id"]: f for f in FOODS}
 

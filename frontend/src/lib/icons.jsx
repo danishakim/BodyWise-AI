@@ -21,6 +21,7 @@ const PATHS = {
   arrowR: "<path d=\"M5 12h14M13 6l6 6-6 6\"/>",
   arrowL: "<path d=\"M19 12H5M11 6l-6 6 6 6\"/>",
   refresh: "<path d=\"M20 11a8 8 0 0 0-14-5L4 8\"/><path d=\"M4 4v4h4\"/><path d=\"M4 13a8 8 0 0 0 14 5l2-2\"/><path d=\"M20 20v-4h-4\"/>",
+  search: "<circle cx=\"11\" cy=\"11\" r=\"7\"/><path d=\"M20 20l-4-4\"/>",
   menu: "<rect x=\"5\" y=\"3\" width=\"14\" height=\"18\" rx=\"2\"/><path d=\"M9 8h6M9 12h6M9 16h4\"/>",
   party: "<path d=\"M4 20l5-14 9 9z\"/><path d=\"M14 4v2M19 9h2M17 5l-1.5 1.5\"/>",
   target: "<circle cx=\"12\" cy=\"12\" r=\"9\"/><circle cx=\"12\" cy=\"12\" r=\"5\"/><circle cx=\"12\" cy=\"12\" r=\"1\"/>",

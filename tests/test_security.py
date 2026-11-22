@@ -1,5 +1,3 @@
-import io
-
 import pytest
 from pydantic import ValidationError
 
@@ -45,13 +43,6 @@ def test_cheap_routes_have_no_quota(monkeypatch):
     assert all(c.post("/api/assess", json=PROFILE).status_code == 200 for _ in range(5))
 
 
-def test_uploads_need_same_site_header(monkeypatch):
-    c = make_client(monkeypatch)
-    jpeg = b"\xff\xd8\xff\xe0" + b"0" * 100
-    r = c.post("/api/label/scan", files={"image": ("x.jpg", io.BytesIO(jpeg))})
-    assert r.status_code == 403
-
-
 def test_security_headers(monkeypatch):
     c = make_client(monkeypatch)
     h = c.get("/").headers
@@ -62,24 +53,13 @@ def test_security_headers(monkeypatch):
     assert c.get("https://testserver/").headers["Strict-Transport-Security"].startswith("max-age=")
 
 
-def test_internal_errors_are_not_leaked(monkeypatch):
+def test_bad_input_gets_a_plain_json_error(monkeypatch):
     c = make_client(monkeypatch)
-    r = c.post("/api/menu/scan", files={"image": ("m.jpg", io.BytesIO(b"\xff\xd8\xff" + b"0" * 50))}, data={"remaining_kcal": "abc"}, headers={"X-BodyWise": "1"})
-    assert r.status_code == 400 and r.json()["error"] == "Invalid remaining calories."
-
-
-def test_image_sniffing_is_strict():
-    from app import sniff_image
-
-    assert sniff_image(b"RIFF\x00\x00\x00\x00WEBPVP8 ") == "image/webp"
-    assert sniff_image(b"RIFF\x00\x00\x00\x00WAVEfmt ") is None      # WAV is not WebP
-    assert sniff_image(b"\x89PNG\r\n\x1a\n....") == "image/png"
-    assert sniff_image(b"GIF89a") is None
+    r = c.post("/api/swap", json={"slot": "lunch", "kcal": "lots"})
+    assert r.status_code == 400 and r.json()["error"].startswith("Invalid kcal")
 
 
 def test_ai_output_is_bounded():
-    with pytest.raises(ValidationError):
-        ai.MenuPick(dish="x", est_kcal=99999, verdict="best", reason="", tweak="")
     with pytest.raises(ValidationError):
         ai.MealOut(slot="Lunch", name="x", description="", kcal=9000, protein_g=10, cost_rm=5)
 

@@ -68,17 +68,17 @@ def test_coach_demo(client):
     assert r.json()["source"] == "demo" and "kcal" in r.json()["reply"]
 
 
-def test_image_upload_rejects_non_images(client):
-    r = client.post("/api/label/scan", files={"image": ("x.jpg", io.BytesIO(b"not an image"))}, headers=SAME_SITE)
-    assert r.status_code == 400
-
-
-def test_food_photos_are_not_sent_to_the_server(client):
-    # Food photos are recognised on-device by Teachable Machine; there is no server endpoint for them.
+@pytest.mark.parametrize("path", ["/api/food/recognize", "/api/label/scan", "/api/menu/scan"])
+def test_no_photo_upload_endpoints(client, path):
+    # Food photos are recognised on-device by Teachable Machine; label and menu scanning were removed.
     jpeg = b"\xff\xd8\xff\xe0" + b"0" * 100
-    r = client.post("/api/food/recognize", files={"image": ("x.jpg", io.BytesIO(jpeg))},
-                    headers=SAME_SITE)
+    r = client.post(path, files={"image": ("x.jpg", io.BytesIO(jpeg))}, headers=SAME_SITE)
     assert r.status_code in (404, 405)
+
+
+def test_foods_endpoint_lists_model_classes_and_lookalikes(client):
+    r = client.get("/api/foods").json()
+    assert "mineral_water" in r["tm_classes"] and "latte" in r["lookalikes"]["teh_tarik"]
 
 
 def test_predict_endpoint(client):

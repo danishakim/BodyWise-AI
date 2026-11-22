@@ -58,36 +58,6 @@ class PlanOut(BaseModel):
     tips: list[str]
 
 
-class MenuPick(BaseModel):
-    dish: str = Field(max_length=120)
-    est_kcal: int = Field(ge=0, le=3000)
-    verdict: Literal["best", "ok", "limit"]
-    reason: str = Field(max_length=300)
-    tweak: str = Field(max_length=200)
-
-
-class MenuScan(BaseModel):
-    is_menu: bool
-    summary: str
-    picks: list[MenuPick]
-
-
-class NutritionLabel(BaseModel):
-    """Values read from a packaged food's nutrition panel, always PER SERVING."""
-    is_label: bool
-    product_name: str = Field(max_length=120)
-    serving_desc: str = Field(max_length=60)
-    serving_g: float | None = Field(default=None, ge=0, le=2000)
-    kcal: float = Field(ge=0, le=2500)
-    protein_g: float = Field(ge=0, le=200)
-    carbs_g: float = Field(ge=0, le=400)
-    fat_g: float = Field(ge=0, le=200)
-    sugar_g: float | None = Field(default=None, ge=0, le=400)
-    sodium_mg: float | None = Field(default=None, ge=0, le=20000)
-    kcal_per_100g: float | None = Field(default=None, ge=0, le=1000)
-    confidence: Literal["low", "medium", "high"]
-
-
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant"]
     text: str = Field(max_length=1500)
@@ -322,99 +292,7 @@ def _finalise_plan(plan: dict, metrics: dict, source: str) -> dict:
 
 
 # Food PHOTOS are recognised on the device by the Teachable Machine model (frontend/src/views/Snap.jsx);
-# the server only handles nutrition labels and menu boards.
-
-# ---------------------------------------------------------------------------
-# Exclusive: Menu Scanner
-# ---------------------------------------------------------------------------
-def scan_menu(image: bytes, mime: str, remaining_kcal: int, prefs: Preferences, goal: str) -> dict:
-    if not is_enabled():
-        return {"ok": False, "source": "demo", "reason": "Menu Scanner needs the Gemini API key (AI vision)."}
-    from google.genai import types
-
-    prompt = f"""
-This is a photo of a restaurant or hawker menu board. Read the dishes on it.
-The user has {remaining_kcal} kcal left today, wants to {goal} weight, budget about RM{prefs.budget_rm:.0f}/day,
-{"vegetarian, " if prefs.vegetarian else ""}{"halal only." if prefs.halal else ""}
-Return up to 6 picks ranked best first. verdict: "best" (fits well), "ok" (fine with tweak), "limit" (save for special days).
-Each reason is one short sentence. tweak is a specific way to order it, in Manglish if natural (e.g. "kurang minyak, telur rebus").
-If the image is not a menu, set is_menu=false and leave picks empty.
-"""
-    try:
-        scan: MenuScan = _structured(
-            [types.Part.from_bytes(data=image, mime_type=mime), prompt],
-            MenuScan, SAFETY_RULES, temperature=0.3,
-        )
-    except Exception as exc:  # noqa: BLE001
-        log.warning("Gemini menu scan failed: %s", exc)
-        return {"ok": False, "source": "gemini", "reason": "Couldn't read that menu. Try a sharper, well-lit photo."}
-    out = {"ok": scan.is_menu, "source": "gemini", **scan.model_dump()}
-    if not scan.is_menu:
-        out["reason"] = "That doesn't look like a menu."
-    return out
-
-
-# ---------------------------------------------------------------------------
-# Feature: Nutrition label scanner (document understanding)
-# ---------------------------------------------------------------------------
-LABEL_PROMPT = """
-This should be a photo of a packaged food's NUTRITION INFORMATION panel. Malaysian labels are often
-bilingual: Maklumat Pemakanan = Nutrition Information, Saiz hidangan = Serving size,
-Tenaga = Energy, Karbohidrat = Carbohydrate, Lemak = Fat, Gula = Sugar, Natrium = Sodium,
-Hidangan per bekas = Servings per pack.
-
-Extract the values PER SERVING:
-- If the panel has a per-serving column, use it.
-- If it only has per 100 g / 100 ml, compute per serving from the serving size. If there is no serving size,
-  report per 100 g and set serving_desc to "100 g".
-- Energy must be in kcal. If only kJ is shown, convert with kcal = kJ / 4.184.
-- kcal_per_100g: the per-100 g energy in kcal if shown, else null.
-- product_name: from any visible brand/product text, otherwise a short description (e.g. "Wholemeal bread").
-- Use null for sugar or sodium if not shown. Never guess numbers that are not on the label.
-If the image is not a nutrition label, set is_label=false and use 0 for the numbers.
-"""
-
-
-def check_label(label: dict) -> list[str]:
-    """Arithmetic sanity checks on what the AI read. Returns user-facing warnings (empty = looks right)."""
-    warnings: list[str] = []
-    kcal = label["kcal"]
-    from_macros = 4 * label["protein_g"] + 4 * label["carbs_g"] + 9 * label["fat_g"]
-    if kcal > 0 and from_macros > 0 and abs(from_macros - kcal) > max(40, 0.25 * kcal):
-        if kcal > 3 * from_macros:
-            warnings.append("The calories look like kilojoules (kJ). Please check the number or retake the photo.")
-        else:
-            warnings.append("The calories don't match the protein, carbs and fat on the label. Please check or retake the photo.")
-    per100, grams = label.get("kcal_per_100g"), label.get("serving_g")
-    if per100 and grams and kcal > 0:
-        expected = per100 * grams / 100
-        if abs(expected - kcal) > max(25, 0.2 * kcal):
-            warnings.append(f"Per-serving energy doesn't match the per-100 g value (expected about {round(expected)} kcal).")
-    if label["confidence"] == "low":
-        warnings.append("The label was hard to read. Double-check the numbers.")
-    return warnings
-
-
-def read_label(image: bytes, mime: str) -> dict:
-    if not is_enabled():
-        return {"ok": False, "source": "demo", "reason": "Label scanning needs the Gemini API key (AI vision)."}
-    from google.genai import types
-
-    try:
-        label: NutritionLabel = _structured(
-            [types.Part.from_bytes(data=image, mime_type=mime), LABEL_PROMPT],
-            NutritionLabel, SAFETY_RULES, temperature=0.1,
-        )
-    except Exception as exc:  # noqa: BLE001
-        log.warning("Gemini label scan failed: %s", exc)
-        return {"ok": False, "source": "gemini", "reason": "Couldn't read that label. Try a flat, well-lit photo of the nutrition table."}
-    data = label.model_dump()
-    if not label.is_label or label.kcal == 0:
-        return {"ok": False, "source": "gemini", "reason": "That doesn't look like a nutrition label. Photograph the nutrition table on the back of the pack."}
-    for k in ("kcal", "protein_g", "carbs_g", "fat_g", "sugar_g"):
-        if data.get(k) is not None:
-            data[k] = round(data[k], 1)
-    return {"ok": True, "source": "gemini", **data, "warnings": check_label(data)}
+# the server never sees them.
 
 
 # ---------------------------------------------------------------------------

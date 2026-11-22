@@ -4,7 +4,7 @@
 // - Other same-origin files (icons, manifest): stale-while-revalidate.
 // - /api/*: always network, never cached (health data and AI answers stay fresh and private).
 // - Cross-origin requests (fonts, Teachable Machine model) are left to the browser.
-const VERSION = 'bodywise-react-v5';
+const VERSION = 'bodywise-react-v6';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(VERSION).then((c) => c.addAll(['/', '/manifest.webmanifest', '/img/logo.svg', '/img/icon-192.png'])).then(() => self.skipWaiting()));

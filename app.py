@@ -6,14 +6,13 @@ API docs:     http://127.0.0.1:5000/api/docs
 """
 from __future__ import annotations
 
-import json
 import logging
 import os
 from pathlib import Path
 
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, File, Form, Request, UploadFile
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
@@ -22,7 +21,7 @@ from pydantic import BaseModel, Field, ValidationError
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from bodywise import ai
-from bodywise.foods import FOODS, smart_swaps
+from bodywise.foods import FOODS, LOOKALIKES, TM_CLASSES, smart_swaps
 from bodywise.health import Profile, assess, rebalance_for_event
 from bodywise.predict import PredictRequest, predict
 from bodywise.quota import Quota
@@ -31,7 +30,6 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("bodywise")
 
-MAX_UPLOAD_BYTES = 4 * 1024 * 1024   # Vercel rejects request bodies over 4.5 MB
 FRONTEND_DIST = Path(__file__).resolve().parent / "frontend" / "dist"
 
 APP_CSP = (
@@ -53,24 +51,9 @@ DOCS_CSP = (
 )
 
 
-class UserError(ValueError):
-    """An error whose message is safe to show to the user."""
-
-
 class ApiError(Exception):
     def __init__(self, status: int, error: str, code: str | None = None):
         self.status, self.error, self.code = status, error, code
-
-
-def sniff_image(data: bytes) -> str | None:
-    """Identify an image by its magic bytes (never trust the filename or Content-Type)."""
-    if data.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg"
-    if data.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image/png"
-    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return "image/webp"
-    return None
 
 
 # --- Request bodies -------------------------------------------------------
@@ -104,18 +87,6 @@ class CoachRequest(BaseModel):
     today: TodaySummary = TodaySummary()
 
 
-def read_image(image: UploadFile | None) -> tuple[bytes, str]:
-    if image is None:
-        raise UserError("No image uploaded.")
-    data = image.file.read(MAX_UPLOAD_BYTES + 1)
-    if len(data) > MAX_UPLOAD_BYTES:
-        raise ApiError(413, "Image is too large (max 4 MB).")
-    mime = sniff_image(data)
-    if not data or mime is None:
-        raise UserError("Please upload a JPEG, PNG or WebP image.")
-    return data, mime
-
-
 def create_app() -> FastAPI:
     app = FastAPI(
         title="BodyWise AI API",
@@ -136,13 +107,6 @@ def create_app() -> FastAPI:
         if msg:
             raise ApiError(429, msg, "quota")
 
-    def same_site_only(request: Request) -> None:
-        """Uploads are 'simple' requests a foreign site could forge; require our custom header."""
-        if request.headers.get("x-bodywise") != "1":
-            raise ApiError(403, "Request blocked.")
-
-    upload_guard = [Depends(same_site_only), Depends(ai_quota)]
-
     # --- Error handling: always JSON {"error": ...}, never stack traces -----
     def first_error(errors) -> JSONResponse:
         first = errors[0]
@@ -156,10 +120,6 @@ def create_app() -> FastAPI:
     @app.exception_handler(ValidationError)
     async def on_validation(_req, err: ValidationError):
         return first_error(err.errors())
-
-    @app.exception_handler(UserError)
-    async def on_user_error(_req, err: UserError):
-        return JSONResponse({"error": str(err)}, status_code=400)
 
     @app.exception_handler(ApiError)
     async def on_api_error(_req, err: ApiError):
@@ -199,7 +159,8 @@ def create_app() -> FastAPI:
 
     @app.get("/api/foods", tags=["food"])
     def foods():
-        return {"foods": FOODS}
+        # tm_classes: what the photo model knows; lookalikes: what each class is often confused with.
+        return {"foods": FOODS, "tm_classes": TM_CLASSES, "lookalikes": LOOKALIKES}
 
     @app.post("/api/assess", tags=["health"])
     def api_assess(profile: Profile):
@@ -228,28 +189,6 @@ def create_app() -> FastAPI:
         """7-day Malaysian meal plan written by Gemini around the formula-based calorie target."""
         metrics = assess(req.profile)
         return {"metrics": metrics, "plan": ai.generate_plan(req.profile.model_dump(), metrics, req.prefs)}
-
-    @app.post("/api/menu/scan", tags=["ai"], dependencies=upload_guard)
-    def api_menu(image: UploadFile | None = File(None), remaining_kcal: str = Form("600"),
-                 goal: str = Form("maintain"), prefs: str = Form("{}")):
-        data, mime = read_image(image)
-        try:
-            remaining = max(0, min(int(remaining_kcal), 5000))
-        except ValueError:
-            raise UserError("Invalid remaining calories.") from None
-        if goal not in ("lose", "maintain", "gain"):
-            goal = "maintain"
-        try:
-            parsed = ai.Preferences.model_validate(json.loads(prefs))
-        except json.JSONDecodeError:
-            raise UserError("Invalid preferences.") from None
-        return ai.scan_menu(data, mime, remaining, parsed, goal)
-
-    @app.post("/api/label/scan", tags=["ai"], dependencies=upload_guard)
-    def api_label(image: UploadFile | None = File(None)):
-        """Read a packaged food's nutrition label (per serving) and check the arithmetic."""
-        data, mime = read_image(image)
-        return ai.read_label(data, mime)
 
     @app.post("/api/coach", tags=["ai"], dependencies=[Depends(ai_quota)])
     def api_coach(req: CoachRequest):

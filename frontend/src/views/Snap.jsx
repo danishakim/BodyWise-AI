@@ -1,15 +1,16 @@
-// Snap & Scan: food photos → Teachable Machine only (runs on the device);
-// nutrition labels and menu boards → server-side AI via /api/label/scan and /api/menu/scan.
+// Snap: food photos → Teachable Machine only (runs on the device, photos never leave the phone).
+// Some foods look alike in a photo (a latte vs teh tarik), so after every photo the user picks the exact food
+// from the model's answer plus its lookalikes (LOOKALIKES in bodywise/foods.py).
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api.js';
-import { store, useStore, addMeal, removeMeal, mealsOn, todayTotals, targetFor } from '../lib/store.js';
+import { useStore, addMeal, removeMeal, mealsOn, todayTotals, targetFor } from '../lib/store.js';
 import { fmt, resizeImage } from '../lib/format.js';
 import { Icon } from '../lib/icons.jsx';
 import { useApp } from '../components/AppContext.js';
 
 const TM_MIN_CONFIDENCE = 0.6;
-let modeMemo = 'food';
-let foodsCache = null;
+const PICKS_KEY = 'bodywise:tm-picks';    // { modelClass: foodId } the user last chose for that class
+let foodsCache = null;                    // /api/foods response: { foods, tm_classes, lookalikes }
 let tmModel = null;
 
 async function loadTM(url) {
@@ -20,10 +21,36 @@ async function loadTM(url) {
   return tmModel;
 }
 
+async function getFoods() {
+  if (!foodsCache) foodsCache = await api.foods();
+  return foodsCache;
+}
+
 function useFoods() {
-  const [foods, setFoods] = useState(foodsCache);
-  useEffect(() => { if (!foods) api.foods().then((r) => { foodsCache = r.foods; setFoods(r.foods); }).catch(() => {}); }, [foods]);
-  return foods;
+  const [data, setData] = useState(foodsCache);
+  useEffect(() => { if (!data) getFoods().then(setData).catch(() => {}); }, [data]);
+  return data;
+}
+
+const readPicks = () => { try { return JSON.parse(localStorage.getItem(PICKS_KEY)) || {}; } catch { return {}; } };
+function rememberPick(cls, foodId) {
+  try { localStorage.setItem(PICKS_KEY, JSON.stringify({ ...readPicks(), [cls]: foodId })); } catch { /* private mode */ }
+}
+
+// Turn the model's predictions into the choices shown under "Which one are you having?".
+function choicesFor(preds, data) {
+  const byId = Object.fromEntries(data.foods.map((f) => [f.id, f]));
+  const known = preds.filter((p) => byId[p.className]);
+  const top = preds[0];
+  const sure = !!top && known[0] === top && top.probability >= TM_MIN_CONFIDENCE;
+  const guesses = sure ? [top] : known.filter((p) => p.probability >= 0.1).slice(0, 3);
+  const ids = guesses.map((g) => g.className);
+  if (guesses[0]) ids.push(...(data.lookalikes?.[guesses[0].className] || []));
+  const options = [...new Set(ids)].map((id) => byId[id]).filter(Boolean).slice(0, 7);
+  // Confident: preselect the model's answer, or what this user picked last time for it (e.g. their usual latte).
+  const usual = sure ? byId[readPicks()[top.className]] : null;
+  const selected = sure ? (usual && options.includes(usual) ? usual : byId[top.className]) : null;
+  return { kind: 'pick', sure, cls: guesses[0]?.className || null, options, selected };
 }
 
 // Camera / upload area with drag-and-drop, preview and a scanning animation.
@@ -63,19 +90,10 @@ function usePhoto() {
 }
 
 export default function Snap() {
-  const [mode, setMode] = useState(modeMemo);
-  const pick = (m) => { modeMemo = m; setMode(m); };
   return (
     <>
-      <header className="page-head">
-        <div><h1>Snap <em>&amp;</em> Scan</h1></div>
-        <div className="seg" role="group" aria-label="Mode">
-          <button aria-pressed={mode === 'food'} onClick={() => pick('food')}>Food</button>
-          <button aria-pressed={mode === 'label'} onClick={() => pick('label')}>Label</button>
-          <button aria-pressed={mode === 'menu'} onClick={() => pick('menu')}>Menu</button>
-        </div>
-      </header>
-      {mode === 'food' ? <FoodMode /> : mode === 'label' ? <LabelMode /> : <MenuMode />}
+      <header className="page-head"><div><h1>Snap <em>&amp;</em> Scan</h1></div></header>
+      <FoodMode />
     </>
   );
 }
@@ -83,9 +101,10 @@ export default function Snap() {
 // ---------------- Food photo (Teachable Machine) ----------------
 function FoodMode() {
   const { status, toast, showLogged } = useApp();
-  const foods = useFoods();
+  const data = useFoods();
   const photo = usePhoto();
-  const [result, setResult] = useState(null);   // { kind: 'busy'|'info'|'unsure'|'found', ... }
+  const search = useRef(null);
+  const [result, setResult] = useState(null);   // { kind: 'busy' | 'info' | 'pick', ... }
   const [query, setQuery] = useState('');
 
   const recognise = async (file) => {
@@ -94,50 +113,62 @@ function FoodMode() {
     if (!status.tm_model_url) { setResult({ kind: 'info', text: "The food recognition model isn't set up yet. Search for your food instead." }); return; }
     setResult({ kind: 'busy' }); photo.setScanning(true);
     try {
-      const model = await loadTM(status.tm_model_url);
+      const [model, foods] = await Promise.all([loadTM(status.tm_model_url), getFoods()]);
       const preds = (await model.predict(p.img)).sort((a, b) => b.probability - a.probability);
-      const list = foodsCache || (await api.foods()).foods;
-      foodsCache = list;
-      const known = preds.map((x) => ({ p: x, f: list.find((f) => f.id === x.className) })).filter((x) => x.f);
-      const best = known[0];
-      if (best && best.p === preds[0] && best.p.probability >= TM_MIN_CONFIDENCE) setResult({ kind: 'found', food: best.f });
-      else setResult({ kind: 'unsure', guesses: known.filter((x) => x.p.probability >= 0.1).slice(0, 3).map((x) => x.f) });
+      setResult(choicesFor(preds, foods));
     } catch (e) {
       console.warn('Teachable Machine failed', e);
       setResult({ kind: 'info', text: "Couldn't load the food model. Check your internet connection, or search for your food instead." });
     } finally { photo.setScanning(false); }
   };
 
-  const shown = (foods || []).filter((f) => f.name.toLowerCase().includes(query.toLowerCase())).slice(0, 40);
+  const somethingElse = () => {
+    setResult(null);
+    search.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    search.current?.focus({ preventScroll: true });
+  };
+
+  const add = (f, servings) => {
+    if (result?.cls) rememberPick(result.cls, f.id);
+    addMeal({ name: servings === 1 ? f.name : `${f.name} ×${servings}`, kcal: f.kcal * servings, protein: f.protein * servings, source: 'Food photo' });
+    setResult(null);
+    showLogged({ name: f.name, kcal: f.kcal * servings });
+  };
+
+  const foods = data?.foods || [];
+  const shown = foods.filter((f) => f.name.toLowerCase().includes(query.toLowerCase())).slice(0, 40);
+  const knows = (data?.tm_classes || []).map((id) => id.replace(/_/g, ' ')).join(', ');
+  const pick = result?.kind === 'pick' ? result : null;
 
   return (
     <div className="grid grid-2">
       <div className="stack">
         <Dropzone id="food" title="Take or upload a photo of your meal" sub="Our Teachable Machine model recognises the dish"
           preview={photo.preview} scanning={photo.scanning} onFile={recognise} />
-        <p className="tiny muted">Recognised on your device. Photos are never uploaded or stored.</p>
+        <p className="tiny muted">Recognised on your device. Photos are never uploaded or stored.{knows && ` Works best on ${knows}.`}</p>
         {result?.kind === 'busy' && <div className="card thinking"><div className="thinking-dots"><i /><i /><i /></div><p className="muted">Recognising your food…</p></div>}
         {result?.kind === 'info' && <div className="alert"><Icon name="info" /><span>{result.text}</span></div>}
-        {result?.kind === 'unsure' && (
+        {pick && (
           <section className="card result-card stack" style={{ gap: 10 }}>
-            <b>Not sure what this is</b>
-            <p className="tiny muted">{result.guesses.length ? 'Is it one of these?' : "This food isn't in our model yet. Search for it instead."}</p>
-            {result.guesses.length > 0 && <div className="chips">{result.guesses.map((g) => <button key={g.id} className="chip" onClick={() => setResult({ kind: 'found', food: g })}>{g.name}</button>)}</div>}
+            <b>{pick.options.length ? 'Which one are you having?' : 'Not sure what this is'}</b>
+            <p className="tiny muted">{!pick.options.length ? "This food isn't in our model yet. Search for it instead."
+              : pick.sure ? 'Some foods look alike in photos, like latte and teh tarik. Tap the right one.'
+              : 'Not sure about this photo. Is it one of these?'}</p>
+            <div className="chips" role="group" aria-label="Choose your food">
+              {pick.options.map((f) => (
+                <button key={f.id} className="chip" aria-pressed={pick.selected?.id === f.id}
+                  onClick={() => setResult({ ...pick, selected: f })}>{f.name}</button>
+              ))}
+              <button className="chip" onClick={somethingElse}><Icon name="search" /> Something else</button>
+            </div>
           </section>
         )}
-        {result?.kind === 'found' && (
-          <FoodResult food={result.food} onAdd={(servings) => {
-            const f = result.food;
-            addMeal({ name: servings === 1 ? f.name : `${f.name} ×${servings}`, kcal: f.kcal * servings, protein: f.protein * servings, source: 'Food photo' });
-            setResult(null);
-            showLogged({ name: f.name, kcal: f.kcal * servings });
-          }} />
-        )}
+        {pick?.selected && <FoodResult key={pick.selected.id} food={pick.selected} onAdd={(servings) => add(pick.selected, servings)} />}
       </div>
       <div className="stack">
         <section className="card">
           <div className="card-title"><Icon name="plus" /> Add manually</div>
-          <input className="input" placeholder="Search: nasi lemak, roti, teh tarik…" aria-label="Search foods" value={query} onChange={(e) => setQuery(e.target.value)} />
+          <input ref={search} className="input" placeholder="Search: nasi lemak, latte, teh tarik…" aria-label="Search foods" value={query} onChange={(e) => setQuery(e.target.value)} />
           <div className="food-list">
             {shown.map((f) => (
               <div key={f.id} className="food-item"><span>{f.name} <span className="muted num">· {f.kcal} kcal</span></span>
@@ -197,123 +228,5 @@ function TodayLog() {
         </div>
       ) : <p className="muted tiny" style={{ marginTop: 12 }}>Nothing logged yet today.</p>}
     </section>
-  );
-}
-
-// ---------------- Nutrition label scanner ----------------
-function LabelMode() {
-  const { status, showLogged } = useApp();
-  const photo = usePhoto();
-  const [state, setState] = useState(null);   // null | 'busy' | { error } | label
-  const [servings, setServings] = useState(1);
-
-  const scan = async (file) => {
-    let p;
-    try { p = await photo.prepare(file); } catch (e) { setState({ error: e.message }); return; }
-    setState('busy'); setServings(1); photo.setScanning(true);
-    try {
-      const r = await api.scanLabel(p.blob);
-      setState(r.ok ? r : { error: r.reason });
-    } catch (e) { setState({ error: e.message }); }
-    finally { photo.setScanning(false); }
-  };
-
-  const r = state && state !== 'busy' && !state.error ? state : null;
-  const x = (v) => Math.round(v * servings * 10) / 10;
-  const add = () => {
-    if (r.warnings.length && !confirm('The numbers may be misread. Add anyway?')) return;
-    addMeal({ name: `${r.product_name}${servings === 1 ? '' : ` ×${servings}`}`, kcal: r.kcal * servings, protein: r.protein_g * servings, source: 'Label scan' });
-    setState(null);
-    showLogged({ name: r.product_name, kcal: r.kcal * servings });
-  };
-
-  return (
-    <div className="grid grid-2">
-      <div className="stack">
-        <Dropzone id="label" title="Photograph the nutrition table on the pack" sub="Maklumat Pemakanan / Nutrition Information, flat and well-lit"
-          preview={photo.preview} scanning={photo.scanning} onFile={scan} />
-        <p className="tiny muted">For packaged food like bread, Milo or Mamee. The AI reads the exact numbers printed by the manufacturer, then checks that they add up.</p>
-        {!status.ai_enabled && <div className="alert"><Icon name="alert" /><span>Label scanning isn't available right now.</span></div>}
-      </div>
-      <div>
-        {!state && <section className="card thinking"><span className="eyebrow">How it works</span>
-          <p className="muted">1. Snap the label · 2. AI reads energy, protein, carbs and fat per serving · 3. Choose servings and add to today.</p></section>}
-        {state === 'busy' && <div className="card thinking"><div className="thinking-dots"><i /><i /><i /></div><p className="muted">Reading the label…</p></div>}
-        {state?.error && <div className="alert"><Icon name="info" /><span>{state.error}</span></div>}
-        {r && (
-          <section className="card result-card stack" style={{ gap: 14 }}>
-            <div><h2>{r.product_name}</h2><p className="tiny muted">Per serving: {r.serving_desc}{r.serving_g ? ` (${r.serving_g} g)` : ''}</p></div>
-            <div className="spread">
-              <div className="big-number num">{Math.round(r.kcal * servings)}<small>kcal</small></div>
-              <Stepper value={servings} max={10} onChange={setServings} />
-            </div>
-            <div className="grid" style={{ gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 8 }}>
-              {[['Protein', r.protein_g, 'sky'], ['Carbs', r.carbs_g, 'gold'], ['Fat', r.fat_g, 'accent']].map(([l, v, tone]) => (
-                <div key={l} className="stat" style={{ textAlign: 'center' }}><small>{l}</small>
-                  <b className="num" style={{ fontSize: '1.15rem', color: `var(--${tone})` }}>{x(v)}<span>g</span></b></div>
-              ))}
-            </div>
-            {r.sugar_g != null && <p className="tiny muted">Sugar {x(r.sugar_g)} g{r.sodium_mg != null ? ` · Sodium ${Math.round(r.sodium_mg * servings)} mg` : ''}</p>}
-            {r.warnings.map((w) => <div key={w} className="alert"><Icon name="alert" /><span>{w}</span></div>)}
-            <button className="btn btn-primary btn-block" onClick={add}><Icon name="check" /> Add to today</button>
-          </section>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ---------------- Menu Scanner ----------------
-const VERDICT = { best: 'Best pick', ok: 'OK with tweak', limit: 'Treat day' };
-
-function MenuMode() {
-  const s = useStore();
-  const { status, showLogged } = useApp();
-  const photo = usePhoto();
-  const [state, setState] = useState(null);
-  const remaining = Math.max(0, targetFor(undefined, s).kcal - todayTotals(s).kcal);
-
-  const scan = async (file) => {
-    let p;
-    try { p = await photo.prepare(file); } catch (e) { setState({ error: e.message }); return; }
-    setState('busy'); photo.setScanning(true);
-    try {
-      const st = store.get();
-      const r = await api.scanMenu(p.blob, { remaining_kcal: String(remaining), goal: st.metrics?.goal || 'maintain', prefs: st.prefs });
-      setState(r.ok ? r : { error: r.reason });
-    } catch (e) { setState({ error: e.message }); }
-    finally { photo.setScanning(false); }
-  };
-
-  return (
-    <div className="grid grid-2">
-      <div className="stack">
-        <Dropzone id="menu" title="Photograph a menu or hawker signboard" sub="AI reads every dish and ranks them for your goal"
-          preview={photo.preview} scanning={photo.scanning} onFile={scan} />
-        <div className="alert info"><Icon name="info" /><span>You have <b className="num">{fmt.kcal(remaining)} kcal</b> left today. The AI picks dishes that fit, with an ordering tip for each.</span></div>
-        {!status.ai_enabled && <div className="alert"><Icon name="alert" /><span>Menu scanning isn't available right now.</span></div>}
-      </div>
-      <div>
-        {!state && <section className="card thinking"><span className="badge excl">EXCLUSIVE</span><h2>Menu Scanner</h2>
-          <p className="muted">Most calorie apps can only log food <i>after</i> you eat it. BodyWise helps you choose <i>before</i> you order.</p></section>}
-        {state === 'busy' && <div className="card thinking"><div className="thinking-dots"><i /><i /><i /></div><p className="muted">Reading the menu…</p></div>}
-        {state?.error && <div className="alert"><Icon name="info" /><span>{state.error}</span></div>}
-        {state?.picks && (
-          <div className="stack">
-            <p>{state.summary}</p>
-            {state.picks.map((pk) => (
-              <article key={pk.dish} className={`card meal-card verdict-${pk.verdict}`}>
-                <div className="spread"><span className="slot-tag" style={{ color: 'var(--slot-color)' }}>{VERDICT[pk.verdict]}</span><span className="badge num">~{pk.est_kcal} kcal</span></div>
-                <h3>{pk.dish}</h3><p className="tiny muted">{pk.reason}</p>
-                <p className="tiny"><b>Order it like this:</b> {pk.tweak}</p>
-                <button className="btn btn-sm" style={{ alignSelf: 'flex-start' }}
-                  onClick={() => { addMeal({ name: pk.dish, kcal: pk.est_kcal, protein: 0, source: 'Menu Scanner' }); showLogged({ name: pk.dish, kcal: pk.est_kcal }); }}>
-                  <Icon name="plus" /> I ordered this</button>
-              </article>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
   );
 }
