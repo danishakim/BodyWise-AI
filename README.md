@@ -8,7 +8,7 @@ meal plan written by AI, food-photo logging, an AI coach, and a machine-learning
 when you'll reach your goal. It runs in the browser and installs on a phone like an app.
 
 - **Design (Figma):** https://www.figma.com/design/yFMT2RV65E5SPAXmv7bxuu
-- **Live app:** *add your Vercel link here after deploying*
+- **Live app:** https://body-wise-ai.vercel.app
 
 > Student prototype, not medical advice. Calorie values are approximate; verify with MyFCD.
 
